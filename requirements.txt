@@ -15,3 +15,4 @@ google-generativeai
 python-dotenv
 Pillow
 requests
+xhtml2pdf
