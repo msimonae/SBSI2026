@@ -1,0 +1,17 @@
+﻿streamlit
+joblib
+numpy
+pandas
+shap
+matplotlib
+anchor-exp
+scikit-learn
+xgboost
+lime
+alibi
+eli5
+openai
+google-generativeai
+python-dotenv
+Pillow
+requests
