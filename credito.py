@@ -1,4 +1,4 @@
-# credito.py
+# credit_app.py
 import os
 import re
 import numpy as np
@@ -14,22 +14,27 @@ from eli5 import format_as_html
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# ------------------ Utilitários ------------------ #
+# --- NOVA FUNCIONALIDADE: Dependências para Geração de PDF --- #
+import base64
+import io
+from xhtml2pdf import pisa
+from PIL import Image
+
+# ------------------ Utilitários (sem alteração) ------------------ #
 def format_currency(value):
     """Formata número em R$ 1.234.567,89. Seguro contra None/NaN."""
     try:
         v = float(value)
-    except Exception:
+    except (ValueError, TypeError):
         return "R$ 0,00"
     s = f"R$ {v:,.2f}"
-    # converte estilo en -> pt (ponto para milhar, vírgula para decimal)
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 def format_shap_contrib(value):
     """Formata contribuição SHAP como número com ponto decimal (ex: -3.24)."""
     try:
         return f"{float(value):.2f}"
-    except Exception:
+    except (ValueError, TypeError):
         return f"{value}"
 
 def _format_number_in_rule(num_str, is_money):
@@ -37,85 +42,159 @@ def _format_number_in_rule(num_str, is_money):
         v = float(num_str)
         if is_money:
             return format_currency(v)
-        # se não for monetário, mantemos número com no máximo 2 casas decimais
-        return f"{v:.2f}" if (abs(v) < 1000 and (v % 1) != 0) else str(int(v)) if v.is_integer() else f"{v:.2f}"
-    except:
+        return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (ValueError, TypeError):
         return num_str
 
-
 def humanize_lime_rule(rule, feature_translations, input_values):
-    """
-    Recebe uma string de regra do LIME (ex.: 'ULTIMO_SALARIO <= 3900.0')
-    e retorna texto humanizado com valores formatados.
-    """
-    # traduz nomes de features
-    # quebra conjunções (LIME costuma retornar expressões simples, mas tratamos & e " and ")
     clauses = re.split(r'\s+and\s+|\s*&\s*', rule, flags=re.IGNORECASE)
     human_clauses = []
+    feature_name = None
 
     for c in clauses:
         c = c.strip().strip('()')
-        # padrões possíveis:
-        # 1) a < feature <= b  (ex: 0.0 < VALOR <= 185000.0)
-        m_range = re.match(r'([-+]?\d*\.?\d+)\s*<\s*([A-Za-z_][A-Za-z0-9_]*)\s*<=\s*([-+]?\d*\.?\d+)', c)
-        m_range2 = re.match(r'([A-Za-z_][A-Za-z0-9_]*)\s*>\s*([-+]?\d*\.?\d+)\s*and\s*([A-Za-z_][A-Za-z0-9_]*)\s*<=\s*([-+]?\d*\.?\d+)', c, flags=re.IGNORECASE)
-        m_le = re.match(r'([A-Za-z_][A-Za-z0-9_]*)\s*<=\s*([-+]?\d*\.?\d+)', c)
-        m_ge = re.match(r'([A-Za-z_][A-Za-z0-9_]*)\s*>=\s*([-+]?\d*\.?\d+)', c)
-        m_gt = re.match(r'([A-Za-z_][A-Za-z0-9_]*)\s*>\s*([-+]?\d*\.?\d+)', c)
-        m_eq = re.match(r'([A-Za-z_][A-Za-z0-9_]*)\s*==?\s*["\']?([^"\']+)["\']?', c)
+        match = re.search(r'([A-Za-z_][A-Za-z0-9_]*)', c)
+        if match:
+            feature_name = match.group(1)
+            is_money = feature_name in ['VL_IMOVEIS', 'VALOR_TABELA_CARROS', 'ULTIMO_SALARIO', 'OUTRA_RENDA_VALOR']
+            translated_feature = feature_translations.get(feature_name, feature_name)
 
-        # detecta feature para decidir formato monetário
-        feature_name_search = re.search(r'([A-Za-z_][A-Za-z0-9_]*)', c)
-        feature_name = feature_name_search.group(1) if feature_name_search else None
-        is_money = feature_name in ['VL_IMOVEIS', 'VALOR_TABELA_CARROS', 'ULTIMO_SALARIO', 'OUTRA_RENDA_VALOR']
-
-        translated = feature_translations.get(feature_name, feature_name if feature_name else c)
-
-        if m_range:
-            a, f, b = m_range.group(1), m_range.group(2), m_range.group(3)
-            human_clauses.append(f"{translated} entre {_format_number_in_rule(a, is_money)} e {_format_number_in_rule(b, is_money)}")
-        elif m_range2:
-            # fallback raro - compõe manualmente
-            _, a, _, b = m_range2.groups()
-            human_clauses.append(f"{translated} entre {_format_number_in_rule(a, is_money)} e {_format_number_in_rule(b, is_money)}")
-        elif m_le:
-            f, val = m_le.group(1), m_le.group(2)
-            human_clauses.append(f"{translated} igual ou menor que {_format_number_in_rule(val, is_money)}")
-        elif m_ge:
-            f, val = m_ge.group(1), m_ge.group(2)
-            human_clauses.append(f"{translated} igual ou maior que {_format_number_in_rule(val, is_money)}")
-        elif m_gt:
-            f, val = m_gt.group(1), m_gt.group(2)
-            human_clauses.append(f"{translated} maior que {_format_number_in_rule(val, is_money)}")
-        elif m_eq:
-            f, val = m_eq.group(1), m_eq.group(2)
-            human_clauses.append(f"{translated} igual a {val}")
+            nums = re.findall(r'([-+]?\d*\.?\d+)', c)
+            formatted_c = c
+            for num in nums:
+                formatted_c = formatted_c.replace(num, _format_number_in_rule(num, is_money), 1)
+            
+            # Substitui o nome técnico pelo humanizado
+            formatted_c = formatted_c.replace(feature_name, translated_feature)
+            human_clauses.append(formatted_c)
         else:
-            # fallback: substitui números por formatados se existirem
-            nums = re.findall(r'[-+]?\d*\.?\d+', c)
-            c_fmt = c
-            for n in nums:
-                c_fmt = c_fmt.replace(n, _format_number_in_rule(n, is_money))
-            human_clauses.append(c_fmt)
+            human_clauses.append(c)
+    
+    humanized = " and ".join(human_clauses)
+    input_value_str = None
+    if feature_name and feature_name in input_values:
+        val = input_values[feature_name]
+        is_money_input = feature_name in ['VL_IMOVEIS', 'VALOR_TABELA_CARROS', 'ULTIMO_SALARIO', 'OUTRA_RENDA_VALOR']
+        input_value_str = format_currency(val) if is_money_input else str(val)
 
-    humanized = " e ".join(human_clauses)
-    # adiciona info do valor de entrada do usuário se disponível
-    input_value = input_values.get(feature_name, None) if feature_name else None
-    if input_value is not None:
-        if feature_name in ['VL_IMOVEIS', 'VALOR_TABELA_CARROS', 'ULTIMO_SALARIO', 'OUTRA_RENDA_VALOR']:
-            input_str = format_currency(input_value)
-        else:
-            input_str = str(input_value)
-        return humanized, input_str
-    else:
-        return humanized, None
+    return humanized, input_value_str
+
+# --- NOVA FUNCIONALIDADE: Geração de Relatório PDF --- #
+def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, llm_feedback):
+    """Gera um relatório PDF a partir dos resultados da análise."""
+    
+    # 1. Converter a figura SHAP para uma imagem em base64
+    buf = io.BytesIO()
+    shap_fig.savefig(buf, format="png", dpi=600, bbox_inches='tight')
+    shap_img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    buf.close()
+
+    # 2. Montar o conteúdo HTML do relatório
+    html = f"""
+    <html>
+    <head>
+        <style>
+            @page {{
+                size: a4 portrait;
+                margin: 1.5cm;
+            }}
+            body {{
+                font-family: 'Helvetica', 'Arial', sans-serif;
+                color: #333;
+            }}
+            h1 {{
+                color: #003366;
+                text-align: center;
+                border-bottom: 2px solid #003366;
+                padding-bottom: 10px;
+            }}
+            h2 {{
+                color: #0055A4;
+                border-bottom: 1px solid #ccc;
+                padding-bottom: 5px;
+                margin-top: 25px;
+            }}
+            .result {{
+                font-size: 1.2em;
+                font-weight: bold;
+                padding: 10px;
+                margin: 10px 0;
+                border-radius: 5px;
+                text-align: center;
+                color: white;
+                background-color: {'#28a745' if result_text == 'Approved' else '#dc3545'};
+            }}
+            .probability {{
+                text-align: center;
+                font-size: 1.1em;
+                margin-bottom: 20px;
+            }}
+            .explanation-section ul {{
+                list-style-type: none;
+                padding-left: 0;
+            }}
+            .explanation-section li {{
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 10px;
+                margin-bottom: 8px;
+            }}
+            .shap-image {{
+                text-align: center;
+                margin-top: 20px;
+            }}
+            img {{
+                max-width: 100%;
+                height: auto;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>Credit Analysis Report</h1>
+        
+        <h2>Prediction Result</h2>
+        <div class="result">{result_text}</div>
+        <div class="probability">Approval Probability: <strong>{proba:.2%}</strong></div>
+
+        <h2>SHAP Explanation (Feature Impact)</h2>
+        <div class="explanation-section">
+            <ul>{''.join([f'<li>{reason}</li>' for reason in shap_reasons])}</ul>
+        </div>
+        <div class="shap-image">
+            <img src="data:image/png;base64,{shap_img_base64}" />
+        </div>
+
+        <h2>LIME Explanation (Local Rules)</h2>
+        <div class="explanation-section">
+             <ul>{''.join([f'<li>{reason}</li>' for reason in lime_reasons])}</ul>
+        </div>
+
+        <h2>Expert Feedback (AI Generated)</h2>
+        <div>{llm_feedback.replace('\\n', '<br>')}</div>
+
+    </body>
+    </html>
+    """
+    
+    # 3. Converter HTML para PDF
+    pdf_buffer = io.BytesIO()
+    pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
+    
+    if pisa_status.err:
+        return None
+    
+    pdf_buffer.seek(0)
+    return pdf_buffer.getvalue()
 
 
-# ------------------ Config UI e mapeamentos ------------------ #
-st.set_page_config(page_title="Crédito com XAI", layout="wide")
-st.title("Previsão de Crédito e Explicabilidade (XAI)")
+# ------------------ UI Config e Mapeamentos (Rótulos Traduzidos) ------------------ #
+st.set_page_config(page_title="XAI Credit Analysis", layout="wide")
+st.title("Creditworthiness Prediction and Explainability (XAI)")
+st.markdown("Enter the applicant's details below to get a credit prediction and an explanation of the result.")
 
-# Mapeamentos (exemplo)
+
+# Mapeamentos (valores em PT para o modelo)
 ufs = ['SP', 'MG', 'SC', 'PR', 'RJ']
 escolaridades = ['Superior Cursando', 'Superior Completo', 'Segundo Grau Completo']
 estados_civis = ['Solteiro', 'Casado', 'Divorciado']
@@ -127,11 +206,23 @@ estado_civil_map = {label: i for i, label in enumerate(estados_civis)}
 faixa_etaria_map = {label: i for i, label in enumerate(faixas_etarias)}
 
 feature_names = [
-    'UF', 'ESCOLARIDADE', 'ESTADO_CIVIL', 'QT_FILHOS', 'CASA_PROPRIA',
-    'QT_IMOVEIS', 'VL_IMOVEIS', 'OUTRA_RENDA', 'OUTRA_RENDA_VALOR',
-    'TEMPO_ULTIMO_EMPREGO_MESES', 'TRABALHANDO_ATUALMENTE', 'ULTIMO_SALARIO',
-    'QT_CARROS', 'VALOR_TABELA_CARROS', 'FAIXA_ETARIA'
+    'UF', 'ESCOLARIDADE', 'ESTADO_CIVIL', 'QT_FILHOS', 'CASA_PROPRIA', 'QT_IMOVEIS', 
+    'VL_IMOVEIS', 'OUTRA_RENDA', 'OUTRA_RENDA_VALOR', 'TEMPO_ULTIMO_EMPREGO_MESES', 
+    'TRABALHANDO_ATUALMENTE', 'ULTIMO_SALARIO', 'QT_CARROS', 'VALOR_TABELA_CARROS', 'FAIXA_ETARIA'
 ]
+
+# ------------------ Carregar Modelos e Dados ------------------ #
+try:
+    scaler = joblib.load('scaler.pkl')
+    lr_model = joblib.load('modelo_regressao.pkl')
+    X_train_raw = joblib.load('X_train.pkl')
+    if isinstance(X_train_raw, np.ndarray):
+        X_train_df = pd.DataFrame(X_train_raw, columns=feature_names)
+    else:
+        X_train_df = X_train_raw[feature_names] if list(X_train_raw.columns) != feature_names else X_train_raw
+except Exception as e:
+    st.error(f"Error loading models/data: {e}")
+    st.stop()
 
 # ------------------ OPENAI Client ------------------ #
 load_dotenv()
@@ -140,75 +231,46 @@ client = None
 if OPENAI_API_KEY:
     client = OpenAI(api_key=OPENAI_API_KEY)
 else:
-    st.warning("⚠️ OPENAI_API_KEY não configurada. O feedback do LLM não estará disponível.")
+    st.warning("⚠️ OpenAI API key not configured. LLM feedback will be unavailable.")
 
-# ------------------ Carregar modelos/dados (joblib) ------------------ #
-try:
-    scaler = joblib.load('scaler.pkl')
-    lr_model = joblib.load('modelo_regressao.pkl')
-    X_train_scaled = joblib.load('X_train_scaled.pkl')  # escalado
-    X_train_raw = joblib.load('X_train.pkl')           # raw (para LIME/Anchor)
-    # garante dataframe com colunas corretas
-    if isinstance(X_train_raw, np.ndarray):
-        X_train_df = pd.DataFrame(X_train_raw, columns=feature_names)
-    else:
-        # se falta alguma coluna, seleciona na ordem certa
-        if list(X_train_raw.columns) != feature_names:
-            X_train_df = X_train_raw[feature_names]
+# ------------------ Inputs da UI (Layout Refatorado) ------------------ #
+with st.expander("Enter Applicant's Profile Information", expanded=True):
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Personal & Financial Info")
+        UF = st.selectbox('State (UF)', ufs, index=0)
+        ESCOLARIDADE = st.selectbox('Education Level', escolaridades, index=1)
+        ESTADO_CIVIL = st.selectbox('Marital Status', estados_civis, index=0)
+        QT_FILHOS = st.number_input('Number of Children', min_value=0, value=1)
+        FAIXA_ETARIA = st.radio('Age Group', faixas_etarias, index=2, horizontal=True)
+
+    with col2:
+        st.subheader("Assets & Employment")
+        CASA_PROPRIA = st.radio('Owns a Home?', ['Sim', 'Não'], index=0, horizontal=True)
+        if CASA_PROPRIA == 'Sim':
+            QT_IMOVEIS = st.number_input('Number of Properties', min_value=1, value=1)
+            VL_IMOVEIS = st.number_input('Total Value of Properties (R$)', min_value=0.0, value=100000.0, step=10000.0)
         else:
-            X_train_df = X_train_raw
-except Exception as e:
-    st.error(f"Erro ao carregar modelos/dados: {e}")
-    st.stop()
-
-# ------------------ Inputs UI ------------------ #
-col1, col2, col3 = st.columns(3)
-with col1:
-    UF = st.selectbox('UF', ufs, index=0)
-    ESCOLARIDADE = st.selectbox('Escolaridade', escolaridades, index=1)
-    ESTADO_CIVIL = st.selectbox('Estado Civil', estados_civis, index=0)
-    QT_FILHOS = st.number_input('Qtd. Filhos', min_value=0, value=1)
-    CASA_PROPRIA = st.radio('Casa Própria?', ['Sim', 'Não'], index=0)
-with col2:
-    if CASA_PROPRIA == 'Sim':
-        QT_IMOVEIS = st.number_input('Qtd. Imóveis', min_value=0, value=1)
-        VL_IMOVEIS_str = st.text_input('Valor dos Imóveis (R$)', value="100000")
-        try:
-            VL_IMOVEIS = float(VL_IMOVEIS_str.replace("R$", "").replace(".", "").replace(",", "."))
-        except:
+            QT_IMOVEIS = 0
             VL_IMOVEIS = 0.0
-    else:
-        QT_IMOVEIS = 0
-        VL_IMOVEIS = 0.0
-
-    OUTRA_RENDA = st.radio('Outra renda?', ['Sim', 'Não'], index=1)
-    OUTRA_RENDA_VALOR = 0.0
-    if OUTRA_RENDA == 'Sim':
-        OUTRA_RENDA_VALOR_str = st.text_input('Valor Outra Renda (R$)', value="2000")
-        try:
-            OUTRA_RENDA_VALOR = float(OUTRA_RENDA_VALOR_str.replace("R$", "").replace(".", "").replace(",", "."))
-        except:
-            OUTRA_RENDA_VALOR = 0.0
-    TEMPO_ULTIMO_EMPREGO_MESES = st.slider('Tempo Últ. Emprego (meses)', 0, 240, 5)
-
-with col3:
-    TRABALHANDO_ATUALMENTE = st.radio('Trabalhando atualmente?', ['Sim', 'Não'], index=0)
-    trabalhando_flag = 1 if TRABALHANDO_ATUALMENTE == 'Sim' else 0
-
-    if TRABALHANDO_ATUALMENTE == 'Sim':
-        ULTIMO_SALARIO_str = st.text_input('Último Salário (R$)', value="5400")
-        try:
-            ULTIMO_SALARIO = float(ULTIMO_SALARIO_str.replace("R$", "").replace(".", "").replace(",", "."))
-        except:
+        
+        TRABALHANDO_ATUALMENTE = st.radio('Currently Employed?', ['Sim', 'Não'], index=0, horizontal=True)
+        if TRABALHANDO_ATUALMENTE == 'Sim':
+            ULTIMO_SALARIO = st.number_input('Last Monthly Salary (R$)', min_value=0.0, value=5400.0, step=100.0)
+        else:
             ULTIMO_SALARIO = 0.0
-    else:
-        ULTIMO_SALARIO = 0.0
 
-    QT_CARROS_input = st.number_input('Qtd. Carros', min_value=0, value=1)
-    VALOR_TABELA_CARROS = st.slider('Valor Tabela Carros (R$)', 0, 200000, 45000, step=5000)
-    FAIXA_ETARIA = st.radio('Faixa Etária', faixas_etarias, index=2)
+        TEMPO_ULTIMO_EMPREGO_MESES = st.slider('Months at Last Job', 0, 240, 5)
+        QT_CARROS_input = st.number_input('Number of Cars', min_value=0, value=1)
+        VALOR_TABELA_CARROS = st.slider('Total Value of Cars (R$)', 0, 200000, 45000, step=5000)
+        
+        OUTRA_RENDA = st.radio('Has Other Income?', ['Sim', 'Não'], index=1, horizontal=True)
+        if OUTRA_RENDA == 'Sim':
+            OUTRA_RENDA_VALOR = st.number_input('Other Income Amount (R$)', min_value=0.0, value=2000.0, step=100.0)
+        else:
+            OUTRA_RENDA_VALOR = 0.0
 
-if st.button("Verificar Crédito"):
+if st.button("Analyze Creditworthiness", type="primary"):
     # ------------------- Montar dados do input ------------------- #
     novos_dados_dict = {
         'UF': uf_map[UF], 'ESCOLARIDADE': escolaridade_map[ESCOLARIDADE], 'ESTADO_CIVIL': estado_civil_map[ESTADO_CIVIL], 'QT_FILHOS': int(QT_FILHOS),
@@ -218,315 +280,166 @@ if st.button("Verificar Crédito"):
         'VALOR_TABELA_CARROS': float(VALOR_TABELA_CARROS), 'FAIXA_ETARIA': faixa_etaria_map[FAIXA_ETARIA]
     }
 
-    novos_dados = list(novos_dados_dict.values())
-    X_input_df = pd.DataFrame([novos_dados], columns=feature_names)
-    # Escala para o modelo
+    X_input_df = pd.DataFrame([novos_dados_dict.values()], columns=feature_names)
+    
     try:
         X_input_scaled = scaler.transform(X_input_df)
-    except Exception as e:
-        st.error(f"Erro ao transformar dados com scaler: {e}")
-        st.stop()
-    X_input_scaled_df = pd.DataFrame(X_input_scaled, columns=feature_names)
-
-    # Predição
-    try:
+        X_input_scaled_df = pd.DataFrame(X_input_scaled, columns=feature_names)
+        
         y_pred = lr_model.predict(X_input_scaled)[0]
-        proba = getattr(lr_model, "predict_proba", lambda x: np.array([[1, 0]]))(X_input_scaled)[0][1]
+        proba = lr_model.predict_proba(X_input_scaled)[0][1]
     except Exception as e:
-        st.error(f"Erro na predição: {e}")
+        st.error(f"An error occurred during prediction: {e}")
         st.stop()
 
-    resultado_texto = 'Aprovado' if int(y_pred) == 1 else 'Recusado'
-    cor = 'green' if int(y_pred) == 1 else 'red'
-    st.markdown(f"### Resultado: <span style='color:{cor}; font-weight:700'>{resultado_texto}</span>", unsafe_allow_html=True)
-    st.write(f"Probabilidade de Aprovação: **{proba:.2%}**")
+    # --- Container de Resultados para facilitar o Print Screen --- #
+    with st.container(border=True):
+        resultado_texto_en = 'Approved' if int(y_pred) == 1 else 'Declined'
+        cor = 'green' if int(y_pred) == 1 else 'red'
+        
+        st.subheader("Prediction Result")
+        st.markdown(f"### Result: <span style='color:{cor};'>{resultado_texto_en}</span>", unsafe_allow_html=True)
+        st.write(f"Probability of Approval: **{proba:.2%}**")
+        st.divider()
 
-    # Acumuladores de explicações
-    exp_rec_shap = ""
-    exp_rec_lime = ""
-    exp_rec_anchor = ""
+        # Acumuladores de explicações para o PDF
+        shap_reasons_for_pdf = []
+        lime_reasons_for_pdf = []
+        llm_feedback_for_pdf = ""
 
         # ------------------- SHAP -------------------
-    try:
-        st.markdown("**Explicação com SHAP (Impacto das Features na Predição Atual):**")
-        explainer = shap.TreeExplainer(lr_model)
-        sv_scaled = explainer(X_input_scaled_df)
-
-        sv_plot = shap.Explanation(
-            values=sv_scaled.values[0],
-            base_values=sv_scaled.base_values[0],
-            data=X_input_df.iloc[0].values,
-            feature_names=feature_names
-        )
-
-        fig_waterfall = plt.figure()
-        shap.plots.waterfall(sv_plot, show=False, max_display=10)
-        st.pyplot(fig_waterfall)
-        plt.close(fig_waterfall)
-
-        contribs = sv_scaled.values[0]
-        if y_pred == 0:
-            idx = np.argsort(contribs)[:3]
-            st.write("**SHAP - Principais fatores que influenciaram a recusa:**")
-        else:
-            idx = np.argsort(contribs)[-3:]
-            st.write("**SHAP - Principais fatores que influenciaram a aprovação:**")
-
-        razoes_shap_list = []
-        for j in idx:
-            feature_name = feature_names[j]
-            contrib = contribs[j]
-            val = X_input_df.iloc[0, j]
-            if feature_name in ['VL_IMOVEIS', 'ULTIMO_SALARIO', 'VALOR_TABELA_CARROS', 'OUTRA_RENDA_VALOR']:
-                val_str = format_currency(val)
-                razoes_shap_list.append(f"{feature_name}: contribuição de {contrib:.2f}, com um valor de {val_str}.")
-            else:
-                razoes_shap_list.append(f"{feature_name}: contribuição de {contrib:.2f}, com um valor de {val}.")
-            
-        exp_rec_shap = "\n".join(razoes_shap_list)
-
-        for r in razoes_shap_list:
-            st.markdown(f"- {r}")
-
-    except Exception as e:
-        st.warning(f"Não foi possível gerar SHAP: {e}")
-
-    
-    # # ------------------- SHAP (explicador robusto) ------------------- #
-    # try:
-    #     st.markdown("**Explicação com SHAP (Impacto das Features na probabilidade de aprovação):**")
-    #     # Explicador que foca na probabilidade da classe 1 (aprovado)
-    #     # Criação do explainer
-    #     explainer = shap.Explainer(lr_model, X_train_df, feature_names=feature_names)
-    #     #explainer = shap.Explainer(lambda x: lr_model.predict_proba(x)[:, 1], X_train_scaled)
-    #     #shap_values = explainer(X_input_scaled)
-    #     shap_values = explainer(X_input_df)
-    #     # waterfall plot
-    #     fig = plt.figure()
-    #     # Gráfico Waterfall (com nomes corretos)
-    #     shap.plots.waterfall(shap_values[0], show=True)
-    #     #shap.plots.waterfall(shap_values[0], show=False, max_display=10)
-    #     st.pyplot(fig)
-    #     plt.close(fig)
-
-    #     contribs = shap_values[0].values  # array (n_features,)
-    #     # seleciona top 3 que favorecem ou top 3 que prejudicam a decisão
-    #     if int(y_pred) == 0:
-    #         # para recusa: pega menores (mais negativos)
-    #         idx = np.argsort(contribs)[:3]
-    #         st.write("**SHAP - Principais fatores que influenciaram a recusa:**")
-    #     else:
-    #         idx = np.argsort(contribs)[-3:]
-    #         st.write("**SHAP - Principais fatores que influenciaram a aprovação:**")
-
-    #     razoes_shap_list = []
-    #     for j in idx:
-    #         feature_name = feature_names[j]
-    #         contrib = contribs[j]
-    #         val = X_input_df.iloc[0, j]
-    #         # valor de entrada formatado quando for monetário
-    #         if feature_name in ['VL_IMOVEIS', 'ULTIMO_SALARIO', 'VALOR_TABELA_CARROS', 'OUTRA_RENDA_VALOR']:
-    #             val_str = format_currency(val)
-    #         else:
-    #             val_str = str(val)
-    #         razoes_shap_list.append({
-    #             "feature": feature_name,
-    #             "contrib": format_shap_contrib(contrib),
-    #             "valor": val_str
-    #         })
-    #         st.markdown(f"- **{feature_name}**: contribuição **{format_shap_contrib(contrib)}**, valor: **{val_str}**")
-
-    #     exp_rec_shap = "\n".join([f"{r['feature']}: contribuição {r['contrib']}, valor {r['valor']}" for r in razoes_shap_list])
-    # except Exception as e:
-    #     st.warning(f"Não foi possível gerar SHAP: {e}")
-
-    # ------------------- LIME ------------------- #
-    try:
-        lime_explainer = lime.lime_tabular.LimeTabularExplainer(
-            training_data=X_train_df.values,
-            feature_names=feature_names,
-            class_names=['Recusado', 'Aprovado'],
-            mode='classification'
-        )
-        lime_exp = lime_explainer.explain_instance(
-            X_input_df.values[0],
-            lambda x: lr_model.predict_proba(scaler.transform(pd.DataFrame(x, columns=feature_names))),
-            num_features=5
-        )
-        lime_features = lime_exp.as_list()  # lista de (rule, contrib)
-
-        # Exibição BRUTA no Streamlit
-        st.markdown("**LIME – Principais fatores (regras brutas):**")
-        for rule, contrib in lime_features:
-            st.write(f"- Regra LIME: `{rule}`, contribuição: {contrib:.4f}")
-
-        # Versão humanizada (apenas para o LLM)
-        feature_translations = {
-            'VL_IMOVEIS': 'o valor dos seus imóveis',
-            'VALOR_TABELA_CARROS': 'o valor de tabela dos seus carros',
-            'TEMPO_ULTIMO_EMPREGO_MESES': 'o seu tempo de último emprego (meses)',
-            'ULTIMO_SALARIO': 'o seu último salário',
-            'QT_CARROS': 'a quantidade de carros',
-        }
-
-        exp_rec_lime_human = []
-        for rule, contrib in lime_features:
-            # impacto
-            if int(y_pred) == 0:
-                impact = "negativo"
-            else:
-                impact = "positivo" if contrib > 0 else "negativo"
-
-            human_rule, input_val_str = humanize_lime_rule(rule, feature_translations, novos_dados_dict)
-            if input_val_str:
-                exp_rec_lime_human.append(f"Regra LIME: '{human_rule}'. Seu valor: {input_val_str}. Impacto: {impact}.")
-            else:
-                exp_rec_lime_human.append(f"Regra LIME: '{human_rule}'. Impacto: {impact}.")
-
-        # Para o LLM
-        exp_rec_lime = "\n".join(exp_rec_lime_human)
-
-    except Exception as e:
-        st.warning(f"Não foi possível gerar LIME: {e}")
-
-    
-    # # ------------------- LIME ------------------- #
-    # try:
-    #     lime_explainer = lime.lime_tabular.LimeTabularExplainer(
-    #         training_data=X_train_df.values,
-    #         feature_names=feature_names,
-    #         class_names=['Recusado', 'Aprovado'],
-    #         mode='classification'
-    #     )
-    #     lime_exp = lime_explainer.explain_instance(
-    #         X_input_df.values[0],
-    #         lambda x: lr_model.predict_proba(scaler.transform(pd.DataFrame(x, columns=feature_names))),
-    #         num_features=5
-    #     )
-    #     lime_features = lime_exp.as_list()  # lista de (rule, contrib)
-
-    #     feature_translations = {
-    #         'VL_IMOVEIS': 'o valor dos seus imóveis',
-    #         'VALOR_TABELA_CARROS': 'o valor de tabela dos seus carros',
-    #         'TEMPO_ULTIMO_EMPREGO_MESES': 'o seu tempo de último emprego (meses)',
-    #         'ULTIMO_SALARIO': 'o seu último salário',
-    #         'QT_CARROS': 'a quantidade de carros',
-    #     }
-
-    #     exp_rec_lime_list = []
-    #     for rule, contrib in lime_features:
-    #         # decide impacto relative ao y_pred e ao sinal da contribuição
-    #         if int(y_pred) == 0:
-    #             impact = "negativo"
-    #         else:
-    #             impact = "positivo" if contrib > 0 else "negativo"
-
-    #         human_rule, input_val_str = humanize_lime_rule(rule, feature_translations, novos_dados_dict)
-    #         if input_val_str:
-    #             exp_rec_lime_list.append(f"Regra LIME: '{human_rule}'. Seu valor: {input_val_str}. Impacto: {impact}.")
-    #         else:
-    #             exp_rec_lime_list.append(f"Regra LIME: '{human_rule}'. Impacto: {impact}.")
-
-    #     exp_rec_lime = "\n".join(exp_rec_lime_list)
-    #     st.markdown("**LIME – Principais fatores (humanizados):**")
-    #     for item in exp_rec_lime_list:
-    #         st.write(f"- {item}")
-
-    # except Exception as e:
-    #     st.warning(f"Não foi possível gerar LIME: {e}")
-
-    # ------------------- ELI5 ------------------- #
-    try:
-        eli5_expl = eli5.explain_prediction(lr_model, X_input_df.iloc[0], feature_names=feature_names)
-        html_eli5 = format_as_html(eli5_expl)
-        # Exibe o HTML (se quiser ativar)
-        # st.components.v1.html(html_eli5, height=420, scrolling=True)
-    except Exception as e:
-        st.warning(f"Não foi possível gerar ELI5: {e}")
-
-    # ------------------- Anchor -------------------
-    try:
-        #st.markdown("**Explicação com Anchor (Regras Mínimas):**")
-        def predict_fn_anchor(arr2d):
-            df = pd.DataFrame(arr2d, columns=feature_names)
-            scaled = scaler.transform(df)
-            return lr_model.predict(scaled)
-
-        anchor_explainer = anchor_tabular.AnchorTabularExplainer(
-            class_names=['Recusado', 'Aprovado'],
-            feature_names=feature_names,
-            train_data=X_train_df.values
-        )
-        anchor_exp = anchor_explainer.explain_instance(
-            X_input_df.values[0], predict_fn_anchor, threshold=0.95
-        )
-        
-        rule = " E ".join(anchor_exp.names())
-        #st.write(f"**Anchor – Regra que ancora a predição:** Se *{rule}*, então o resultado é **{resultado_texto}**.")
-        #st.write(f"Precisão da regra: {anchor_exp.precision():.2f} | Cobertura da regra: {anchor_exp.coverage():.2f}")
-        exp_rec_anchor = f"Regra Anchor: {rule}"
-
-    except Exception as e:
-        st.warning(f"Não foi possível gerar a explicação Anchor: {e}")
-
-    # ------------------- Feedback do LLM -------------------
-    if client:
-        prompt = f"""
-Você é um Cientista de Dados Sênior, especialista em explicar os resultados de modelos de Machine Learning para clientes de forma clara, objetiva e humana.
-O modelo de análise de crédito previu o resultado '{resultado_texto}' para um cliente.
-
-Aqui estão as explicações técnicas sobre os fatores que mais influenciaram essa decisão:
-- **SHAP (Contribuição dos atributos):**
-{exp_rec_shap}
-- **LIME (Regras de decisão):**
-{exp_rec_lime}
-
-Com base nas informações do **SHAP** e **LIME**, crie um feedback amigável para o cliente, seguindo as instruções abaixo:
-
-1.  **Análise do Resultado:** De forma amigável e empática, explique todas as principais motivos que levaram à decisão. Mencione todos os fatores do SHAP e todas as regras do LIME e **liste em bullet points**. Para os resultados SHAP descrever apenas as variáveis importantes.Para todos os resultado do LIME, explique em linguagem natural como a condição do fator influenciaram o resultado '{resultado_texto}' e compare com o seu limite da regra do LIME {exp_rec_lime}. Formate valores monetários com R$ e use vírgulas e pontos decimais de forma correta (Exemplo: R$ 50.000,00).
-
-2.  **Recomendações (se o resultado for 'Recusado')**: Se o crédito foi recusado, Diga que seu crédito foi recusado e forneça 2 ou 3 dicas práticas e acionáveis sobre como o cliente pode melhorar seu perfil para aumentar as chances de aprovação no futuro. Se foi aprovado, parabenize o cliente e apenas reforce os pontos positivos.
-
-3.  **Estrutura:** Divida sua resposta em tópicos, como "Resultado da Análise" descrever se foi aprovado ou reprovado aqui e "Recomendações".
-
-Seja direto, empático e construtivo. Evite qualquer tipo de concatenação de palavras. Formate valores monetários como R$ 1.234.567,89. Seja conciso, empático e evite jargões técnicos.
-"""
-        
-#     # ------------------- Feedback do LLM (OpenAI) ------------------- #
-#     if client:
-#         prompt = f"""
-# Você é um Cientista de Dados Sênior, especialista em explicar resultados de modelos de crédito para clientes de forma clara, empática e direta.
-# Importante: As contribuições do SHAP (a seguir) estão em escala numérica do modelo e NÃO representam valores monetários. Os valores monetários aparecem entre parênteses ao lado de cada contribuição.
-
-# Resultado previsto: '{resultado_texto}'
-
-# SHAP (contribuições numéricas):
-# {exp_rec_shap}
-
-# LIME (regras humanizadas):
-# {exp_rec_lime}
-
-# Com base nisso, gere um texto amigável dividido em:
-# 1) Análise do seu Perfil Financeiro — explique os principais motivos que levaram à decisão (liste bullet points com os fatores SHAP e as regras LIME, explicando em linguagem simples).
-# 2) Recomendações / Pontos a Melhorar — se o resultado for 'Recusado', dê 2-3 dicas práticas e concretas.
-
-# Formate valores monetários como R$ 1.234.567,89. Seja conciso, empático e evite jargões técnicos.
-# """
+        st.subheader("SHAP Explanation (Feature Impact)")
+        fig_waterfall, ax = plt.subplots()
         try:
-            with st.spinner("Gerando feedback personalizado com o LLM..."):
-                resp = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "Você é um Cientista de Dados Sênior e especialista em comunicação com clientes."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    temperature=0.1,
-                    max_tokens=500
-                )
-                st.markdown("### 🔍 Feedback do Especialista (LLM)")
-                feedback_content = resp.choices[0].message.content
-                st.write(feedback_content)
+            explainer = shap.TreeExplainer(lr_model)
+            sv_scaled = explainer(X_input_scaled_df)
+
+            sv_plot = shap.Explanation(
+                values=sv_scaled.values[0],
+                base_values=sv_scaled.base_values[0],
+                data=X_input_df.iloc[0].values,
+                feature_names=feature_names
+            )
+            
+            shap.plots.waterfall(sv_plot, show=False, max_display=10)
+            st.pyplot(fig_waterfall)
+
+            # Extrair razões SHAP
+            contribs = sv_scaled.values[0]
+            if y_pred == 0:
+                idx = np.argsort(contribs)[:3] # Fatores negativos
+                st.write("**Top 3 factors that contributed to the decline:**")
+            else:
+                idx = np.argsort(contribs)[-3:][::-1] # Fatores positivos
+                st.write("**Top 3 factors that contributed to the approval:**")
+            
+            for j in idx:
+                feature = feature_names[j]
+                val = X_input_df.iloc[0, j]
+                contrib = contribs[j]
+                val_str = format_currency(val) if feature in ['VL_IMOVEIS', 'ULTIMO_SALARIO', 'VALOR_TABELA_CARROS', 'OUTRA_RENDA_VALOR'] else str(val)
+                reason = f"**{feature}**: A value of **{val_str}** had a SHAP contribution of **{contrib:.2f}**."
+                st.markdown(f"- {reason}")
+                shap_reasons_for_pdf.append(reason.replace("**", ""))
+
         except Exception as e:
-            st.error(f"Erro ao gerar feedback com a OpenAI: {e}")
-    else:
-        st.info("Feedback do LLM não gerado porque a chave OPENAI_API_KEY não está configurada.")
+            st.warning(f"Could not generate SHAP explanation: {e}")
+        finally:
+             plt.close(fig_waterfall)
+        st.divider()
+
+        # ------------------- LIME -------------------
+        st.subheader("LIME Explanation (Local Rules)")
+        try:
+            lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+                training_data=X_train_df.values,
+                feature_names=feature_names,
+                class_names=['Declined', 'Approved'],
+                mode='classification'
+            )
+            lime_exp = lime_explainer.explain_instance(
+                X_input_df.values[0],
+                lambda x: lr_model.predict_proba(scaler.transform(pd.DataFrame(x, columns=feature_names))),
+                num_features=5
+            )
+            lime_features = lime_exp.as_list()
+            
+            feature_translations_en = {name: name.replace('_', ' ').title() for name in feature_names}
+            
+            st.write("**Top rules influencing the decision:**")
+            for rule, contrib in lime_features:
+                human_rule, input_val_str = humanize_lime_rule(rule, feature_translations_en, novos_dados_dict)
+                if input_val_str:
+                    reason = f"The rule '{human_rule}' was relevant. Your value is **{input_val_str}**."
+                else:
+                    reason = f"The rule '{human_rule}' was relevant."
+                st.markdown(f"- {reason}")
+                lime_reasons_for_pdf.append(reason.replace("**", ""))
+        
+        except Exception as e:
+            st.warning(f"Could not generate LIME explanation: {e}")
+        st.divider()
+
+        # ------------------- Feedback do LLM -------------------
+        st.subheader("Expert Feedback (Generated by LLM)")
+        if client:
+            resultado_texto_pt = 'Aprovado' if int(y_pred) == 1 else 'Recusado'
+            exp_rec_shap = "\n".join(shap_reasons_for_pdf)
+            exp_rec_lime = "\n".join(lime_reasons_for_pdf)
+
+            prompt = f"""
+            You are a Senior Data Scientist, an expert in explaining Machine Learning model results to clients in a clear, objective, and humane way.
+            The credit analysis model predicted the result '{resultado_texto_en}' for a client.
+
+            Here are the technical explanations of the factors that most influenced this decision:
+            - **SHAP (Attribute Contributions):**
+            {exp_rec_shap}
+            - **LIME (Decision Rules):**
+            {exp_rec_lime}
+
+            Based on the SHAP and LIME information, create friendly feedback for the client, following the instructions below:
+
+            1.  **Analysis of the Result:** In a friendly and empathetic tone, explain the main reasons that led to the decision. Mention the key factors from SHAP and the rules from LIME in bullet points. For LIME results, explain in natural language how the condition influenced the '{resultado_texto_en}' outcome. Format monetary values correctly (e.g., R$50,000.00).
+
+            2.  **Recommendations (if the result is 'Declined')**: If the credit was declined, state this clearly and provide 2 or 3 practical, actionable tips on how the client can improve their profile to increase their chances of approval in the future. If approved, congratulate the client and reinforce the positive points.
+
+            3.  **Structure:** Divide your response into sections like "Analysis Result" and "Recommendations".
+
+            Be direct, empathetic, and constructive. Be concise and avoid technical jargon.
+            """
+            try:
+                with st.spinner("Generating personalized feedback with AI..."):
+                    resp = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {"role": "system", "content": "You are a Senior Data Scientist and an expert in client communication."},
+                            {"role": "user", "content": prompt},
+                        ],
+                        temperature=0.1, max_tokens=500
+                    )
+                    feedback_content = resp.choices[0].message.content
+                    st.markdown(feedback_content)
+                    llm_feedback_for_pdf = feedback_content
+
+            except Exception as e:
+                st.error(f"Error generating feedback from OpenAI: {e}")
+        else:
+            st.info("LLM feedback is not available because the OpenAI API key is not configured.")
+
+        # --- NOVA FUNCIONALIDADE: Botão de Download PDF --- #
+        st.divider()
+        pdf_bytes = create_pdf_report(
+            result_text=resultado_texto_en,
+            proba=proba,
+            shap_fig=fig_waterfall,
+            shap_reasons=shap_reasons_for_pdf,
+            lime_reasons=lime_reasons_for_pdf,
+            llm_feedback=llm_feedback_for_pdf
+        )
+        if pdf_bytes:
+            st.download_button(
+                label="📥 Download Results as PDF",
+                data=pdf_bytes,
+                file_name="credit_analysis_report.pdf",
+                mime="application/pdf"
+            )
