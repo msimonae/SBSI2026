@@ -293,7 +293,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
         st.divider()
 
         shap_reasons_for_pdf, lime_reasons_for_pdf, llm_feedback_for_pdf = [], [], ""
-        fig_waterfall = None # Initialize fig_waterfall to None
+        fig_waterfall = None 
         
         # --- SHAP Explanation ---
         st.subheader("SHAP Explanation (Feature Impact)")
@@ -306,8 +306,8 @@ if st.button("Analyze Creditworthiness", type="primary"):
             # 1. Generate the plot in matplotlib's global state
             shap.plots.waterfall(sv_plot, show=False, max_display=10)
             
-            # 2. Capture the current figure (gcf) that SHAP just created
-            fig_waterfall = shap.gcf()
+            # 2. Capture the current figure (gcf) from MATPLOTLIB that SHAP just used
+            fig_waterfall = plt.gcf()
             
             # 3. Display the captured figure in Streamlit
             st.pyplot(fig_waterfall)
@@ -324,7 +324,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
         except Exception as e:
             st.warning(f"Could not generate SHAP explanation: {e}")
             if fig_waterfall is None:
-                fig_waterfall = plt.figure() # Create a blank figure to avoid errors in the PDF
+                fig_waterfall = plt.figure()
         st.divider()
 
         # --- LIME Explanation ---
@@ -370,5 +370,5 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 file_name="credit_analysis_report.pdf", mime="application/pdf"
             )
         
-        # Clear the current figure to free memory for the next run
+        # Clear the current matplotlib figure to free memory for the next run
         plt.clf()
