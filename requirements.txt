@@ -14,3 +14,4 @@ python-dotenv
 xhtml2pdf
 Pillow
 xgboost
+markdown
