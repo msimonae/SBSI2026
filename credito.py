@@ -340,12 +340,28 @@ if st.button("Analyze Creditworthiness", type="primary"):
             st.warning(f"Could not generate LIME explanation: {e}")
         
         # --- LLM Feedback (sem alterações) ---
+
+        # --- LLM Feedback (CORRIGIDO COM NOVO PROMPT) ---
         if client:
             st.header("Expert Feedback (AI Generated)")
-            prompt = f"""You are an expert credit analyst. The model predicted '{resultado_texto_en}'. Based on these SHAP and LIME reasons, provide a clear, empathetic summary for the client.
-            SHAP: {shap_reasons_for_pdf}
-            LIME: {lime_reasons_for_pdf}
-            Structure your response with a 'Result Analysis' and 'Recommendations' section. If declined, offer 2-3 actionable tips. If approved, congratulate them. Use bullet points. Be concise. Format currency as R$ 1.234,56."""
+            
+            # Novo prompt com instruções de formatação explícitas
+            prompt = f"""
+            You are an expert credit analyst. The model predicted '{resultado_texto_en}'. 
+            Based on the SHAP and LIME reasons below, provide a clear, empathetic summary for the client.
+
+            SHAP Reasons: {shap_reasons_for_pdf}
+            LIME Reasons: {lime_reasons_for_pdf}
+
+            **Instructions:**
+            1.  **Structure:** Create a response with four distinct sections: "Result Analysis", "SHAP Analysis", "LIME Analysis", and "Recommendations".
+            2.  **Formatting:** Use Markdown H3 headings for each section title (e.g., `### Result Analysis`). Use bullet points for all lists under the headings.
+            3.  **Content:** - In "SHAP Analysis", briefly explain the impact of the top features.
+                - In "LIME Analysis", briefly explain the most relevant rules.
+                - If the result is 'Declined', provide 2-3 actionable tips in the "Recommendations" section.
+                - If 'Approved', congratulate the client.
+            4.  **Style:** Be concise, empathetic, and avoid technical jargon. Format currency as R$ 1.234,56.
+            """
             try:
                 with st.spinner("Generating personalized feedback with AI..."):
                     resp = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
@@ -354,6 +370,21 @@ if st.button("Analyze Creditworthiness", type="primary"):
                     llm_feedback_for_pdf = feedback_content
             except Exception as e:
                 st.error(f"Error generating feedback from OpenAI: {e}")
+        
+        # if client:
+        #     st.header("Expert Feedback (AI Generated)")
+        #     prompt = f"""You are an expert credit analyst. The model predicted '{resultado_texto_en}'. Based on these SHAP and LIME reasons, provide a clear, empathetic summary for the client.
+        #     SHAP: {shap_reasons_for_pdf}
+        #     LIME: {lime_reasons_for_pdf}
+        #     Structure your response with a 'Result Analysis' and 'Recommendations' section. If declined, offer 2-3 actionable tips. If approved, congratulate them. Use bullet points. Be concise. Format currency as R$ 1.234,56."""
+        #     try:
+        #         with st.spinner("Generating personalized feedback with AI..."):
+        #             resp = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
+        #             feedback_content = resp.choices[0].message.content
+        #             st.markdown(feedback_content)
+        #             llm_feedback_for_pdf = feedback_content
+        #     except Exception as e:
+        #         st.error(f"Error generating feedback from OpenAI: {e}")
 
         # --- PDF Download Button (sem alterações) ---
         st.divider()
