@@ -231,6 +231,7 @@ with st.expander("Enter Applicant's Profile Information", expanded=True):
         OUTRA_RENDA_VALOR = st.number_input('Other Income Amount (R$ Brazil Currency)', min_value=0.0, value=2000.0, step=100.0, disabled=(OUTRA_RENDA == 'No'))
 
 # ------------------ MAIN LOGIC & ANALYSIS ------------------ #
+
 if st.button("Analyze Creditworthiness", type="primary"):
     # --- Preparação de dados (sem alterações) ---
     novos_dados_dict = {
@@ -297,20 +298,15 @@ if st.button("Analyze Creditworthiness", type="primary"):
         # --- SHAP Explanation ---
         st.header("SHAP Explanation (Feature Impact)")
         try:
+            fig_waterfall = plt.figure()
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
             
-            # --- CORREÇÃO DEFINITIVA (Baseado no seu código funcional) ---
-            # 1. Cria uma figura limpa do Matplotlib
-            fig_waterfall = plt.figure()
-            
-            # 2. SHAP desenha na figura que acabamos de criar
             shap.plots.waterfall(sv_plot, show=False, max_display=10)
             
-            # 3. Streamlit exibe a figura
-            st.pyplot(fig_waterfall)
-            # --- FIM DA CORREÇÃO ---
+            # --- CORREÇÃO: Exibe a figura usando a largura total do container ---
+            st.pyplot(fig_waterfall, use_container_width=True)
             
             # Lógica para texto do SHAP (sem alterações)
             contribs = sv_scaled.values[0]
@@ -344,7 +340,6 @@ if st.button("Analyze Creditworthiness", type="primary"):
         # --- LLM Feedback (sem alterações) ---
         if client:
             st.header("Expert Feedback (AI Generated)")
-            # ... (código do LLM permanece o mesmo)
             prompt = f"""You are an expert credit analyst. The model predicted '{resultado_texto_en}'. Based on these SHAP and LIME reasons, provide a clear, empathetic summary for the client.
             SHAP: {shap_reasons_for_pdf}
             LIME: {lime_reasons_for_pdf}
@@ -373,7 +368,5 @@ if st.button("Analyze Creditworthiness", type="primary"):
             )
         
         # --- Fechamento da figura ---
-        # A figura só é fechada aqui, no final de tudo, para garantir que ela
-        # esteja disponível para o st.pyplot() e para a função do PDF.
         if fig_waterfall:
             plt.close(fig_waterfall)
