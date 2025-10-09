@@ -221,13 +221,11 @@ with st.expander("Enter Applicant's Profile Information", expanded=True):
         QT_IMOVEIS = st.number_input('Number of Properties', min_value=0, value=1, disabled=(CASA_PROPRIA == 'Não'))
         VL_IMOVEIS = st.number_input('Total Value of Properties (R$)', min_value=0.0, value=100000.0, step=10000.0, disabled=(CASA_PROPRIA == 'Não'))
         
-        # --- Alteração para desabilitar o campo de valor ---
         QT_CARROS_input = st.number_input('Number of Cars', min_value=0, value=1)
         VALOR_TABELA_CARROS = st.slider(
             'Total Value of Cars (R$)', 0, 200000, 45000, step=5000,
             disabled=(QT_CARROS_input == 0)
         )
-        # --- Fim da alteração ---
 
         OUTRA_RENDA = st.radio('Has Other Income?', ['Sim', 'Não'], index=1, horizontal=True)
         OUTRA_RENDA_VALOR = st.number_input('Other Income Amount (R$)', min_value=0.0, value=2000.0, step=100.0, disabled=(OUTRA_RENDA == 'Não'))
@@ -284,7 +282,6 @@ if st.button("Analyze Creditworthiness", type="primary"):
     if QT_CARROS_input == 0:
         del input_summary_for_pdf["Assets"]["Total Value of Cars (R$)"]
 
-
     # --- Display results in a container ---
     with st.container(border=True):
         resultado_texto_en = 'Approved' if int(y_pred) == 1 else 'Declined'
@@ -304,7 +301,10 @@ if st.button("Analyze Creditworthiness", type="primary"):
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
+            
             shap.plots.waterfall(sv_plot, show=False, max_display=10)
+            
+            # This line displays the plot in the Streamlit UI
             st.pyplot(fig_waterfall)
             
             contribs = sv_scaled.values[0]
