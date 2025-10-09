@@ -1,0 +1,5 @@
+# packages.txt
+build-essential
+libpango1.0-dev
+libharfbuzz-dev
+libcairo2-dev
