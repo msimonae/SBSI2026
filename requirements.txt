@@ -1,3 +1,4 @@
+# requirements.txt
 streamlit
 pandas
 numpy
@@ -12,3 +13,4 @@ openai
 python-dotenv
 xhtml2pdf
 Pillow
+xgboost
