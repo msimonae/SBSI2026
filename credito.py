@@ -366,15 +366,22 @@ else:
 with st.expander("Enter Applicant's Profile Information", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Personal & Financial Info")
+        st.subheader("Personal & Employment Info")
         UF = st.selectbox('State (UF)', ufs, index=0)
         ESCOLARIDADE = st.selectbox('Education Level', escolaridades, index=1)
         ESTADO_CIVIL = st.selectbox('Marital Status', estados_civis, index=0)
         QT_FILHOS = st.number_input('Number of Children', min_value=0, value=1)
         FAIXA_ETARIA = st.radio('Age Group', faixas_etarias, index=2, horizontal=True)
+        TRABALHANDO_ATUALMENTE = st.radio('Currently Employed?', ['Sim', 'Não'], index=0, horizontal=True)
+         if TRABALHANDO_ATUALMENTE == 'Sim':
+             ULTIMO_SALARIO = st.number_input('Last Monthly Salary (R$)', min_value=0.0, value=5400.0, step=100.0)
+         else:
+             ULTIMO_SALARIO = 0.0
+
+         TEMPO_ULTIMO_EMPREGO_MESES = st.slider('Months at Last Job', 0, 240, 5)
 
     with col2:
-        st.subheader("Assets & Employment")
+        st.subheader("Assets ")
         CASA_PROPRIA = st.radio('Owns a Home?', ['Sim', 'Não'], index=0, horizontal=True)
         if CASA_PROPRIA == 'Sim':
             QT_IMOVEIS = st.number_input('Number of Properties', min_value=1, value=1)
@@ -383,13 +390,13 @@ with st.expander("Enter Applicant's Profile Information", expanded=True):
             QT_IMOVEIS = 0
             VL_IMOVEIS = 0.0
         
-        TRABALHANDO_ATUALMENTE = st.radio('Currently Employed?', ['Sim', 'Não'], index=0, horizontal=True)
-        if TRABALHANDO_ATUALMENTE == 'Sim':
-            ULTIMO_SALARIO = st.number_input('Last Monthly Salary (R$)', min_value=0.0, value=5400.0, step=100.0)
-        else:
-            ULTIMO_SALARIO = 0.0
+        # TRABALHANDO_ATUALMENTE = st.radio('Currently Employed?', ['Sim', 'Não'], index=0, horizontal=True)
+        # if TRABALHANDO_ATUALMENTE == 'Sim':
+        #     ULTIMO_SALARIO = st.number_input('Last Monthly Salary (R$)', min_value=0.0, value=5400.0, step=100.0)
+        # else:
+        #     ULTIMO_SALARIO = 0.0
 
-        TEMPO_ULTIMO_EMPREGO_MESES = st.slider('Months at Last Job', 0, 240, 5)
+        # TEMPO_ULTIMO_EMPREGO_MESES = st.slider('Months at Last Job', 0, 240, 5)
         QT_CARROS_input = st.number_input('Number of Cars', min_value=0, value=1)
         VALOR_TABELA_CARROS = st.slider('Total Value of Cars (R$)', 0, 200000, 45000, step=5000)
         
