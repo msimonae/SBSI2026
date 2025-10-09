@@ -1,10 +1,9 @@
 # requirements.txt
 streamlit
 pandas
-numpy==1.26.4
 scikit-learn
 joblib
-shap==0.45.0
+shap
 matplotlib
 lime
 openai
