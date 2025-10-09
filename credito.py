@@ -83,19 +83,28 @@ def humanize_lime_rule(rule, feature_translations, input_values):
 # --- NOVA FUNCIONALIDADE: Geração de Relatório PDF --- #
 
 # --- FUNÇÃO ATUALIZADA ---
-def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, llm_feedback):
-    """Gera um relatório PDF a partir dos resultados da análise."""
+def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, llm_feedback, input_data_dict):
+    """Gera um relatório PDF a partir dos resultados da análise, incluindo o perfil de entrada."""
     
-    # 1. Converter a figura SHAP para uma imagem em base64
+    # 1. Converter a figura SHAP para uma imagem em base64 (código existente)
     buf = io.BytesIO()
     shap_fig.savefig(buf, format="png", dpi=600, bbox_inches='tight')
     shap_img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     buf.close()
 
-    # 2. !! IMPORTANTE: Converter o feedback do LLM de Markdown para HTML !!
+    # 2. Converter o feedback do LLM de Markdown para HTML (código existente)
     llm_feedback_html = markdown.markdown(llm_feedback)
 
-    # 3. Montar o conteúdo HTML do relatório
+    # 3. Construir as tabelas HTML para os dados de entrada (código existente)
+    personal_info_html = ""
+    for label, value in input_data_dict["Personal & Employment Info"].items():
+        personal_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
+    
+    assets_info_html = ""
+    for label, value in input_data_dict["Assets"].items():
+        assets_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
+
+    # 4. Montar o conteúdo HTML do relatório com CSS ATUALIZADO
     html = f"""
     <html>
     <head>
@@ -107,16 +116,18 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
             body {{
                 font-family: 'Helvetica', 'Arial', sans-serif;
                 color: #333;
-                line-height: 1.6;
+                line-height: 1.5;
             }}
             h1, h2, h3 {{
                 font-family: 'Georgia', serif;
+                font-weight: normal;
             }}
             h1 {{
                 color: #003366;
                 text-align: center;
                 border-bottom: 2px solid #003366;
                 padding-bottom: 10px;
+                margin-bottom: 30px;
             }}
             h2 {{
                 color: #0055A4;
@@ -124,57 +135,79 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
                 padding-bottom: 5px;
                 margin-top: 25px;
             }}
-            h3 {{
+            .profile-summary-table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 30px;
+            }}
+            .profile-summary-table > tbody > tr > td {{
+                width: 50%;
+                vertical-align: top;
+                padding: 0 10px;
+            }}
+            .inner-table {{
+                width: 100%;
+                border-collapse: collapse;
+            }}
+            .inner-table th {{
+                text-align: left;
+                font-size: 1.2em;
+                padding-bottom: 10px;
                 color: #333;
-                font-size: 1.1em;
+            }}
+            .inner-table td {{
+                padding: 8px 0;
+                border-bottom: 1px solid #f0f0f0;
+            }}
+
+            /* --- ALTERAÇÃO AQUI --- */
+            .inner-table td.label {{
+                font-weight: bold;
+                font-size: 1.1em;  /* <-- AUMENTA O TAMANHO DA FONTE */
+                color: #333;      /* <-- Deixei a cor um pouco mais escura para destaque */
+            }}
+            /* --- FIM DA ALTERAÇÃO --- */
+
+            .inner-table td.value {{
+                text-align: right;
             }}
             .result {{
-                font-size: 1.2em;
-                font-weight: bold;
-                padding: 10px;
-                margin: 10px 0;
-                border-radius: 5px;
-                text-align: center;
-                color: white;
+                font-size: 1.2em; font-weight: bold; padding: 10px; margin: 10px 0;
+                border-radius: 5px; text-align: center; color: white;
                 background-color: {'#28a745' if result_text == 'Approved' else '#dc3545'};
             }}
-            .probability {{
-                text-align: center;
-                font-size: 1.1em;
-                margin-bottom: 20px;
-            }}
-            .explanation-section ul {{
-                list-style-type: none;
-                padding-left: 0;
-            }}
-            .explanation-section li {{
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                padding: 10px;
-                margin-bottom: 8px;
-            }}
-            .shap-image {{
-                text-align: center;
-                margin-top: 20px;
-            }}
-            .llm-feedback ul {{
-                list-style-position: inside;
-                padding-left: 20px;
-            }}
-            .llm-feedback p, .llm-feedback li {{
-                margin-bottom: 10px;
-            }}
-            img {{
-                max-width: 100%;
-                height: auto;
-            }}
+            .probability {{ text-align: center; font-size: 1.1em; margin-bottom: 20px; }}
+            .explanation-section ul {{ list-style-type: none; padding-left: 0; }}
+            .explanation-section li {{ background-color: #f8f9fa; border: 1px solid #dee2e6;
+                                      border-radius: 4px; padding: 10px; margin-bottom: 8px; }}
+            .shap-image {{ text-align: center; margin-top: 20px; }}
+            .llm-feedback p, .llm-feedback li {{ margin-bottom: 10px; }}
+            .llm-feedback ul {{ padding-left: 20px; }}
+            img {{ max-width: 100%; height: auto; }}
         </style>
     </head>
     <body>
         <h1>Credit Analysis Report</h1>
+
+        <h2>Applicant Profile Summary</h2>
+        <table class="profile-summary-table">
+            <tr>
+                <td>
+                    <table class="inner-table">
+                        <tr><th colspan="2">Personal & Employment Info</th></tr>
+                        {personal_info_html}
+                    </table>
+                </td>
+                <td>
+                    <table class="inner-table">
+                        <tr><th colspan="2">Assets</th></tr>
+                        {assets_info_html}
+                    </table>
+                </td>
+            </tr>
+        </table>
         
-        <h2>Prediction Result</h2>
+        <h2>Analysis Results</h2>
         <div class="result">{result_text}</div>
         <div class="probability">Approval Probability: <strong>{proba:.2%}</strong></div>
 
@@ -192,16 +225,14 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
         </div>
 
         <h2>Expert Feedback (AI Generated)</h2>
-        <div class="llm-feedback">
-            {llm_feedback_html}
-        </div>
+        <div class="llm-feedback">{llm_feedback_html}</div>
     </body>
     </html>
     """
     
-    # 4. Converter HTML para PDF
+    # 5. Converter HTML para PDF
     pdf_buffer = io.BytesIO()
-    pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
+    pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
     
     if pisa_status.err:
         return None
