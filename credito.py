@@ -237,7 +237,8 @@ if st.button("Analyze Creditworthiness", type="primary"):
         'TEMPO_ULTIMO_EMPREGO_MESES': int(TEMPO_ULTIMO_EMPREGO_MESES),
         'TRABALHANDO_ATUALMENTE': 1 if TRABALHANDO_ATUALMENTE == 'Sim' else 0, 
         'ULTIMO_SALARIO': float(ULTIMO_SALARIO) if TRABALHANDO_ATUALMENTE == 'Sim' else 0.0,
-        'QT_CARROS': int(QT_CARROS_input), 'VALOR_TABELA_CARROS': float(VALOR_TABELA_CARROS), 'FAIXA_ETARIA': faixa_etaria_map[FAIXA_ETaria]
+        'QT_CARROS': int(QT_CARROS_input), 'VALOR_TABELA_CARROS': float(VALOR_TABELA_CARROS), 
+        'FAIXA_ETARIA': faixa_etaria_map[FAIXA_ETARIA] # <-- CORREÇÃO AQUI
     }
     X_input_df = pd.DataFrame([novos_dados_dict.values()], columns=feature_names)
     
