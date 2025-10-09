@@ -27,11 +27,11 @@ def format_currency(value):
     s = f"R$ {v:,.2f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- PDF REPORT GENERATION FUNCTION (FINAL VERSION) ---
+# --- PDF REPORT GENERATION FUNCTION (Corrected) ---
 def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, input_data_dict):
     """
-    Generates a complete PDF report from the analysis results,
-    including the applicant's input profile with enhanced formatting.
+    Generates a complete PDF report from the analysis results.
+    Note: This version does not include LLM feedback.
     """
     # 1. Convert SHAP figure to a base64 image
     buf = io.BytesIO()
@@ -246,18 +246,18 @@ if st.button("Analyze Creditworthiness", type="primary"):
         # --- SHAP Explanation ---
         st.header("SHAP Explanation (Feature Impact)")
         try:
+            # CORREÇÃO: Adicionado plt.figure() para criar uma tela de desenho limpa
+            plt.figure()
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
             
-            # Universal plotting method
             shap.plots.waterfall(sv_plot, show=False, max_display=10)
             fig_waterfall = plt.gcf()
             st.pyplot(fig_waterfall)
             
             # Display SHAP text explanation
             contribs = sv_scaled.values[0]
-            # Use a higher number to ensure we get the top contributors as seen in the plot
             num_features_to_show = 5 
             idx = np.argsort(np.abs(contribs))[-num_features_to_show:][::-1]
 
@@ -271,7 +271,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
         except Exception as e:
             st.warning(f"Could not generate SHAP explanation: {e}")
             if fig_waterfall is None:
-                fig_waterfall = plt.figure() # Create a blank figure to avoid errors in the PDF
+                fig_waterfall = plt.figure()
         
         # --- LIME Explanation ---
         st.header("LIME Explanation (Local Rules)")
@@ -289,11 +289,11 @@ if st.button("Analyze Creditworthiness", type="primary"):
         
         # --- PDF Download Button ---
         st.divider()
+        # CORREÇÃO: Removido o argumento 'llm_feedback' da chamada
         pdf_bytes = create_pdf_report(
             result_text=resultado_texto_en, proba=proba, shap_fig=fig_waterfall,
             shap_reasons=shap_reasons_for_pdf, lime_reasons=lime_reasons_for_pdf,
-            input_data_dict=input_summary_for_pdf,
-            llm_feedback="" # We removed the LLM feedback for this version
+            input_data_dict=input_summary_for_pdf
         )
         if pdf_bytes:
             st.download_button(
