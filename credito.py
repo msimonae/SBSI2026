@@ -357,7 +357,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
             1.  **Structure:** Create a response with four distinct sections: "Result Analysis", "SHAP Analysis", "LIME Analysis", and "Recommendations".
             2.  **Formatting:** Use Markdown H3 headings for each section title (e.g., `### Result Analysis`). Use bullet points for all lists under the headings.
             3.  **Content:** - In "SHAP Analysis", briefly explain the impact of the top features.
-                - In "LIME Analysis", briefly explain the most relevant rules. Format currency as R$ 1.234,56.
+                - In "LIME Analysis", briefly explain the most relevant rules.
                 - If the result is 'Declined', provide 2-3 actionable tips in the "Recommendations" section.
                 - If 'Approved', congratulate the client.
             4.  **Style:** Be concise, empathetic, and avoid technical jargon. Format currency as R$ 1.234,56.
