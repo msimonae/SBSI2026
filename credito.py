@@ -68,21 +68,23 @@ def humanize_lime_rule(rule, feature_translations, input_values):
 
 
 # --- PDF REPORT GENERATION FUNCTION (FINAL VERSION) ---
+# --- FUNÇÃO create_pdf_report (VERSÃO FINAL CORRIGIDA) ---
 def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, llm_feedback, input_data_dict):
     """
-    Generates a complete PDF report from the analysis results,
-    including the applicant's input profile with enhanced formatting.
+    Gera um relatório PDF completo a partir dos resultados da análise, 
+    incluindo o perfil de entrada do cliente com formatação aprimorada.
     """
-    # 1. Convert SHAP figure to a base64 image
+    
+    # 1. Converter a figura SHAP para uma imagem em base64
     buf = io.BytesIO()
     shap_fig.savefig(buf, format="png", dpi=600, bbox_inches='tight')
     shap_img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     buf.close()
 
-    # 2. Convert LLM feedback from Markdown to HTML
+    # 2. Converter o feedback do LLM de Markdown para HTML
     llm_feedback_html = markdown.markdown(llm_feedback)
 
-    # 3. Build HTML tables for the input data
+    # 3. Construir as tabelas HTML para os dados de entrada
     personal_info_html = ""
     for label, value in input_data_dict["Personal & Employment Info"].items():
         personal_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
@@ -91,7 +93,7 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     for label, value in input_data_dict["Assets"].items():
         assets_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
 
-    # 4. Assemble the complete HTML content for the report
+    # 4. Montar o conteúdo HTML completo do relatório
     html = f"""
     <html>
     <head>
@@ -151,14 +153,17 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     </html>
     """
     
-    # 5. Convert HTML to PDF
+    # 5. Converter HTML para PDF
     pdf_buffer = io.BytesIO()
-    pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
+    # --- CORREÇÃO AQUI ---
+    pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
+    # --- FIM DA CORREÇÃO ---
+    
     if pisa_status.err:
         return None
+    
     pdf_buffer.seek(0)
     return pdf_buffer.getvalue()
-
 # ------------------ STREAMLIT APP CONFIG ------------------ #
 st.set_page_config(page_title="XAI Credit Analysis", layout="wide")
 st.title("Creditworthiness Prediction and Explainability (XAI)")
