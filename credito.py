@@ -231,7 +231,6 @@ with st.expander("Enter Applicant's Profile Information", expanded=True):
         OUTRA_RENDA_VALOR = st.number_input('Other Income Amount (R$ Brazil Currency)', min_value=0.0, value=2000.0, step=100.0, disabled=(OUTRA_RENDA == 'No'))
 
 # ------------------ MAIN LOGIC & ANALYSIS ------------------ #
-
 if st.button("Analyze Creditworthiness", type="primary"):
     # --- Preparação de dados (sem alterações) ---
     novos_dados_dict = {
@@ -298,15 +297,18 @@ if st.button("Analyze Creditworthiness", type="primary"):
         # --- SHAP Explanation ---
         st.header("SHAP Explanation (Feature Impact)")
         try:
-            fig_waterfall = plt.figure()
+            # --- CORREÇÃO 1: Define um tamanho fixo para a figura (largura, altura em polegadas) ---
+            # Você pode ajustar os valores (10, 5) como desejar
+            fig_waterfall = plt.figure(figsize=(10, 5))
+            
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
             
             shap.plots.waterfall(sv_plot, show=False, max_display=10)
             
-            # --- CORREÇÃO: Exibe a figura usando a largura total do container ---
-            st.pyplot(fig_waterfall, use_container_width=True)
+            # --- CORREÇÃO 2: Remove o 'use_container_width' para respeitar o figsize ---
+            st.pyplot(fig_waterfall)
             
             # Lógica para texto do SHAP (sem alterações)
             contribs = sv_scaled.values[0]
