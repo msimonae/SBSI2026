@@ -19,6 +19,7 @@ import base64
 import io
 from xhtml2pdf import pisa
 from PIL import Image
+import markdown
 
 # ------------------ Utilitários (sem alteração) ------------------ #
 def format_currency(value):
@@ -80,6 +81,8 @@ def humanize_lime_rule(rule, feature_translations, input_values):
     return humanized, input_value_str
 
 # --- NOVA FUNCIONALIDADE: Geração de Relatório PDF --- #
+
+# --- FUNÇÃO ATUALIZADA ---
 def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, llm_feedback):
     """Gera um relatório PDF a partir dos resultados da análise."""
     
@@ -89,7 +92,10 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     shap_img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     buf.close()
 
-    # 2. Montar o conteúdo HTML do relatório
+    # 2. !! IMPORTANTE: Converter o feedback do LLM de Markdown para HTML !!
+    llm_feedback_html = markdown.markdown(llm_feedback)
+
+    # 3. Montar o conteúdo HTML do relatório
     html = f"""
     <html>
     <head>
@@ -101,6 +107,10 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
             body {{
                 font-family: 'Helvetica', 'Arial', sans-serif;
                 color: #333;
+                line-height: 1.6;
+            }}
+            h1, h2, h3 {{
+                font-family: 'Georgia', serif;
             }}
             h1 {{
                 color: #003366;
@@ -110,9 +120,13 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
             }}
             h2 {{
                 color: #0055A4;
-                border-bottom: 1px solid #ccc;
+                border-bottom: 1px solid #eee;
                 padding-bottom: 5px;
                 margin-top: 25px;
+            }}
+            h3 {{
+                color: #333;
+                font-size: 1.1em;
             }}
             .result {{
                 font-size: 1.2em;
@@ -144,6 +158,13 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
                 text-align: center;
                 margin-top: 20px;
             }}
+            .llm-feedback ul {{
+                list-style-position: inside;
+                padding-left: 20px;
+            }}
+            .llm-feedback p, .llm-feedback li {{
+                margin-bottom: 10px;
+            }}
             img {{
                 max-width: 100%;
                 height: auto;
@@ -171,13 +192,14 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
         </div>
 
         <h2>Expert Feedback (AI Generated)</h2>
-        <div>{llm_feedback.replace('\\n', '<br>')}</div>
-
+        <div class="llm-feedback">
+            {llm_feedback_html}
+        </div>
     </body>
     </html>
     """
     
-    # 3. Converter HTML para PDF
+    # 4. Converter HTML para PDF
     pdf_buffer = io.BytesIO()
     pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
     
@@ -186,6 +208,113 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     
     pdf_buffer.seek(0)
     return pdf_buffer.getvalue()
+
+# def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, llm_feedback):
+#     """Gera um relatório PDF a partir dos resultados da análise."""
+    
+#     # 1. Converter a figura SHAP para uma imagem em base64
+#     buf = io.BytesIO()
+#     shap_fig.savefig(buf, format="png", dpi=600, bbox_inches='tight')
+#     shap_img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+#     buf.close()
+
+#     # 2. Montar o conteúdo HTML do relatório
+#     html = f"""
+#     <html>
+#     <head>
+#         <style>
+#             @page {{
+#                 size: a4 portrait;
+#                 margin: 1.5cm;
+#             }}
+#             body {{
+#                 font-family: 'Helvetica', 'Arial', sans-serif;
+#                 color: #333;
+#             }}
+#             h1 {{
+#                 color: #003366;
+#                 text-align: center;
+#                 border-bottom: 2px solid #003366;
+#                 padding-bottom: 10px;
+#             }}
+#             h2 {{
+#                 color: #0055A4;
+#                 border-bottom: 1px solid #ccc;
+#                 padding-bottom: 5px;
+#                 margin-top: 25px;
+#             }}
+#             .result {{
+#                 font-size: 1.2em;
+#                 font-weight: bold;
+#                 padding: 10px;
+#                 margin: 10px 0;
+#                 border-radius: 5px;
+#                 text-align: center;
+#                 color: white;
+#                 background-color: {'#28a745' if result_text == 'Approved' else '#dc3545'};
+#             }}
+#             .probability {{
+#                 text-align: center;
+#                 font-size: 1.1em;
+#                 margin-bottom: 20px;
+#             }}
+#             .explanation-section ul {{
+#                 list-style-type: none;
+#                 padding-left: 0;
+#             }}
+#             .explanation-section li {{
+#                 background-color: #f8f9fa;
+#                 border: 1px solid #dee2e6;
+#                 border-radius: 4px;
+#                 padding: 10px;
+#                 margin-bottom: 8px;
+#             }}
+#             .shap-image {{
+#                 text-align: center;
+#                 margin-top: 20px;
+#             }}
+#             img {{
+#                 max-width: 100%;
+#                 height: auto;
+#             }}
+#         </style>
+#     </head>
+#     <body>
+#         <h1>Credit Analysis Report</h1>
+        
+#         <h2>Prediction Result</h2>
+#         <div class="result">{result_text}</div>
+#         <div class="probability">Approval Probability: <strong>{proba:.2%}</strong></div>
+
+#         <h2>SHAP Explanation (Feature Impact)</h2>
+#         <div class="explanation-section">
+#             <ul>{''.join([f'<li>{reason}</li>' for reason in shap_reasons])}</ul>
+#         </div>
+#         <div class="shap-image">
+#             <img src="data:image/png;base64,{shap_img_base64}" />
+#         </div>
+
+#         <h2>LIME Explanation (Local Rules)</h2>
+#         <div class="explanation-section">
+#              <ul>{''.join([f'<li>{reason}</li>' for reason in lime_reasons])}</ul>
+#         </div>
+
+#         <h2>Expert Feedback (AI Generated)</h2>
+#         <div>{llm_feedback.replace('\\n', '<br>')}</div>
+
+#     </body>
+#     </html>
+#     """
+    
+#     # 3. Converter HTML para PDF
+#     pdf_buffer = io.BytesIO()
+#     pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
+    
+#     if pisa_status.err:
+#         return None
+    
+#     pdf_buffer.seek(0)
+#     return pdf_buffer.getvalue()
 
 
 # ------------------ UI Config e Mapeamentos (Rótulos Traduzidos) ------------------ #
