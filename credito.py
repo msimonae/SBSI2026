@@ -38,13 +38,11 @@ def humanize_lime_rule(rule, feature_translations, input_values):
         match = re.search(r'([A-Za-z_][A-Za-z0-9_]*)', c)
         if match:
             feature_name = match.group(1)
-            is_money = feature_name in ['VL_IMOVEIS', 'VALOR_TABELA_CARROS', 'ULTIMO_SALARIO', 'OUTRA_RENDA_VALOR']
             translated_feature = feature_translations.get(feature_name, feature_name)
             
             nums = re.findall(r'([-+]?\d*\.?\d+)', c)
             formatted_c = c
             for num in nums:
-                # Custom formatting for Brazilian style numbers
                 try:
                     v = float(num)
                     formatted_num = f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -68,23 +66,21 @@ def humanize_lime_rule(rule, feature_translations, input_values):
 
 
 # --- PDF REPORT GENERATION FUNCTION (FINAL VERSION) ---
-# --- FUNÇÃO create_pdf_report (VERSÃO FINAL CORRIGIDA) ---
 def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, llm_feedback, input_data_dict):
     """
-    Gera um relatório PDF completo a partir dos resultados da análise, 
-    incluindo o perfil de entrada do cliente com formatação aprimorada.
+    Generates a complete PDF report from the analysis results,
+    including the applicant's input profile with enhanced formatting.
     """
-    
-    # 1. Converter a figura SHAP para uma imagem em base64
+    # 1. Convert SHAP figure to a base64 image
     buf = io.BytesIO()
     shap_fig.savefig(buf, format="png", dpi=600, bbox_inches='tight')
     shap_img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     buf.close()
 
-    # 2. Converter o feedback do LLM de Markdown para HTML
+    # 2. Convert LLM feedback from Markdown to HTML
     llm_feedback_html = markdown.markdown(llm_feedback)
 
-    # 3. Construir as tabelas HTML para os dados de entrada
+    # 3. Build HTML tables for the input data
     personal_info_html = ""
     for label, value in input_data_dict["Personal & Employment Info"].items():
         personal_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
@@ -93,7 +89,7 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     for label, value in input_data_dict["Assets"].items():
         assets_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
 
-    # 4. Montar o conteúdo HTML completo do relatório
+    # 4. Assemble the complete HTML content for the report
     html = f"""
     <html>
     <head>
@@ -141,7 +137,7 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
         </table>
         <h2>Analysis Results</h2>
         <div class="result">{result_text}</div>
-        <div class="probability">Approval Probability: <strong>{proba:.2%}</strong></div>
+        <div class="probability">Approval Probability: <strong>{proba*100:.2f}%</strong></div>
         <h2>SHAP Explanation (Feature Impact)</h2>
         <div class="explanation-section"><ul>{''.join([f'<li>{reason}</li>' for reason in shap_reasons])}</ul></div>
         <div class="shap-image"><img src="data:image/png;base64,{shap_img_base64}" /></div>
@@ -153,17 +149,16 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     </html>
     """
     
-    # 5. Converter HTML para PDF
+    # 5. Convert HTML to PDF
     pdf_buffer = io.BytesIO()
-    # --- CORREÇÃO AQUI ---
     pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
-    # --- FIM DA CORREÇÃO ---
     
     if pisa_status.err:
         return None
     
     pdf_buffer.seek(0)
     return pdf_buffer.getvalue()
+
 # ------------------ STREAMLIT APP CONFIG ------------------ #
 st.set_page_config(page_title="XAI Credit Analysis", layout="wide")
 st.title("Creditworthiness Prediction and Explainability (XAI)")
@@ -189,7 +184,7 @@ feature_names = [
 # ------------------ LOAD MODELS & DATA ------------------ #
 try:
     scaler = joblib.load('scaler.pkl')
-    model = joblib.load('modelo_regressao.pkl') # Renamed to generic 'model'
+    model = joblib.load('modelo_regressao.pkl')
     X_train_raw = joblib.load('X_train.pkl')
     if isinstance(X_train_raw, np.ndarray):
         X_train_df = pd.DataFrame(X_train_raw, columns=feature_names)
@@ -236,10 +231,13 @@ if st.button("Analyze Creditworthiness", type="primary"):
     novos_dados_dict = {
         'UF': uf_map[UF], 'ESCOLARIDADE': escolaridade_map[ESCOLARIDADE], 'ESTADO_CIVIL': estado_civil_map[ESTADO_CIVIL], 
         'QT_FILHOS': int(QT_FILHOS), 'CASA_PROPRIA': 1 if CASA_PROPRIA == 'Sim' else 0, 'QT_IMOVEIS': int(QT_IMOVEIS), 
-        'VL_IMOVEIS': float(VL_IMOVEIS), 'OUTRA_RENDA': 1 if OUTRA_RENDA == 'Sim' else 0, 
-        'OUTRA_RENDA_VALOR': float(OUTRA_RENDA_VALOR), 'TEMPO_ULTIMO_EMPREGO_MESES': int(TEMPO_ULTIMO_EMPREGO_MESES),
-        'TRABALHANDO_ATUALMENTE': 1 if TRABALHANDO_ATUALMENTE == 'Sim' else 0, 'ULTIMO_SALARIO': float(ULTIMO_SALARIO), 
-        'QT_CARROS': int(QT_CARROS_input), 'VALOR_TABELA_CARROS': float(VALOR_TABELA_CARROS), 'FAIXA_ETARIA': faixa_etaria_map[FAIXA_ETARIA]
+        'VL_IMOVEIS': float(VL_IMOVEIS) if CASA_PROPRIA == 'Sim' else 0.0,
+        'OUTRA_RENDA': 1 if OUTRA_RENDA == 'Sim' else 0, 
+        'OUTRA_RENDA_VALOR': float(OUTRA_RENDA_VALOR) if OUTRA_RENDA == 'Sim' else 0.0,
+        'TEMPO_ULTIMO_EMPREGO_MESES': int(TEMPO_ULTIMO_EMPREGO_MESES),
+        'TRABALHANDO_ATUALMENTE': 1 if TRABALHANDO_ATUALMENTE == 'Sim' else 0, 
+        'ULTIMO_SALARIO': float(ULTIMO_SALARIO) if TRABALHANDO_ATUALMENTE == 'Sim' else 0.0,
+        'QT_CARROS': int(QT_CARROS_input), 'VALOR_TABELA_CARROS': float(VALOR_TABELA_CARROS), 'FAIXA_ETARIA': faixa_etaria_map[FAIXA_ETaria]
     }
     X_input_df = pd.DataFrame([novos_dados_dict.values()], columns=feature_names)
     
@@ -281,15 +279,15 @@ if st.button("Analyze Creditworthiness", type="primary"):
         
         st.subheader("Prediction Result")
         st.markdown(f"### Result: <span style='color:{cor};'>{resultado_texto_en}</span>", unsafe_allow_html=True)
-        st.write(f"Probability of Approval: **{proba:.2%}**")
+        st.write(f"Probability of Approval: **{proba*100:.2f}%**")
         st.divider()
 
         shap_reasons_for_pdf, lime_reasons_for_pdf, llm_feedback_for_pdf = [], [], ""
-        fig_waterfall, ax = plt.subplots()
-
+        
         # --- SHAP Explanation ---
+        st.subheader("SHAP Explanation (Feature Impact)")
+        fig_waterfall, ax = plt.subplots()
         try:
-            st.subheader("SHAP Explanation (Feature Impact)")
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
@@ -310,8 +308,8 @@ if st.button("Analyze Creditworthiness", type="primary"):
         st.divider()
 
         # --- LIME Explanation ---
+        st.subheader("LIME Explanation (Local Rules)")
         try:
-            st.subheader("LIME Explanation (Local Rules)")
             lime_explainer = lime.lime_tabular.LimeTabularExplainer(X_train_df.values, feature_names=feature_names, class_names=['Declined', 'Approved'], mode='classification')
             lime_exp = lime_explainer.explain_instance(X_input_df.values[0], lambda x: model.predict_proba(scaler.transform(pd.DataFrame(x, columns=feature_names))), num_features=5)
             st.write("**Top rules influencing the decision:**")
@@ -341,7 +339,6 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 st.error(f"Error generating feedback from OpenAI: {e}")
         
         # --- PDF Download Button ---
-        plt.close(fig_waterfall) # Close the figure to free up memory
         pdf_bytes = create_pdf_report(
             result_text=resultado_texto_en, proba=proba, shap_fig=fig_waterfall,
             shap_reasons=shap_reasons_for_pdf, lime_reasons=lime_reasons_for_pdf,
@@ -352,3 +349,5 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 label="📥 Download Results as PDF", data=pdf_bytes,
                 file_name="credit_analysis_report.pdf", mime="application/pdf"
             )
+        
+        plt.close(fig_waterfall)
