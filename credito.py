@@ -296,17 +296,15 @@ if st.button("Analyze Creditworthiness", type="primary"):
         
         # --- SHAP Explanation ---
         st.subheader("SHAP Explanation (Feature Impact)")
-        # Criamos a figura e o eixo explicitamente
         fig_waterfall, ax = plt.subplots()
         try:
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
             
-            # --- CORREÇÃO DEFINITIVA: Passa o eixo (ax) explicitamente para o SHAP ---
+            # This is the robust way to plot, ensuring it targets the correct axes
             shap.plots.waterfall(sv_plot, show=False, max_display=10, ax=ax)
             
-            # Agora o Streamlit sabe exatamente qual figura exibir
             st.pyplot(fig_waterfall)
             
             contribs = sv_scaled.values[0]
