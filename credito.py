@@ -27,46 +27,8 @@ def format_currency(value):
     s = f"R$ {v:,.2f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
-def humanize_lime_rule(rule, feature_translations, input_values):
-    """Receives a LIME rule string and returns a more human-readable version."""
-    clauses = re.split(r'\s+and\s+|\s*&\s*', rule, flags=re.IGNORECASE)
-    human_clauses = []
-    feature_name = None
-
-    for c in clauses:
-        c = c.strip().strip('()')
-        match = re.search(r'([A-Za-z_][A-Za-z0-9_]*)', c)
-        if match:
-            feature_name = match.group(1)
-            translated_feature = feature_translations.get(feature_name, feature_name)
-            
-            nums = re.findall(r'([-+]?\d*\.?\d+)', c)
-            formatted_c = c
-            for num in nums:
-                try:
-                    v = float(num)
-                    formatted_num = f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    formatted_c = formatted_c.replace(num, formatted_num, 1)
-                except ValueError:
-                    pass
-            
-            formatted_c = formatted_c.replace(feature_name, translated_feature)
-            human_clauses.append(formatted_c)
-        else:
-            human_clauses.append(c)
-    
-    humanized = " and ".join(human_clauses)
-    input_value_str = None
-    if feature_name and feature_name in input_values:
-        val = input_values[feature_name]
-        is_money_input = feature_name in ['VL_IMOVEIS', 'VALOR_TABELA_CARROS', 'ULTIMO_SALARIO', 'OUTRA_RENDA_VALOR']
-        input_value_str = format_currency(val) if is_money_input else str(val)
-
-    return humanized, input_value_str
-
-
 # --- PDF REPORT GENERATION FUNCTION (FINAL VERSION) ---
-def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, llm_feedback, input_data_dict):
+def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, input_data_dict):
     """
     Generates a complete PDF report from the analysis results,
     including the applicant's input profile with enhanced formatting.
@@ -77,10 +39,7 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     shap_img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     buf.close()
 
-    # 2. Convert LLM feedback from Markdown to HTML
-    llm_feedback_html = markdown.markdown(llm_feedback)
-
-    # 3. Build HTML tables for the input data
+    # 2. Build HTML tables for the input data
     personal_info_html = ""
     for label, value in input_data_dict["Personal & Employment Info"].items():
         personal_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
@@ -89,7 +48,7 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     for label, value in input_data_dict["Assets"].items():
         assets_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
 
-    # 4. Assemble the complete HTML content for the report
+    # 3. Assemble the complete HTML content for the report
     html = f"""
     <html>
     <head>
@@ -111,8 +70,6 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
             .explanation-section ul {{ list-style-type: none; padding-left: 0; }}
             .explanation-section li {{ background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; margin-bottom: 8px; }}
             .shap-image {{ text-align: center; margin-top: 20px; }}
-            .llm-feedback p, .llm-feedback li {{ margin-bottom: 10px; }}
-            .llm-feedback ul {{ padding-left: 20px; }}
             img {{ max-width: 100%; height: auto; }}
         </style>
     </head>
@@ -139,17 +96,15 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
         <div class="result">{result_text}</div>
         <div class="probability">Approval Probability: <strong>{proba*100:.2f}%</strong></div>
         <h2>SHAP Explanation (Feature Impact)</h2>
-        <div class="explanation-section"><ul>{''.join([f'<li>{reason}</li>' for reason in shap_reasons])}</ul></div>
         <div class="shap-image"><img src="data:image/png;base64,{shap_img_base64}" /></div>
+        <div class="explanation-section"><ul>{''.join([f'<li>{reason}</li>' for reason in shap_reasons])}</ul></div>
         <h2>LIME Explanation (Local Rules)</h2>
         <div class="explanation-section"><ul>{''.join([f'<li>{reason}</li>' for reason in lime_reasons])}</ul></div>
-        <h2>Expert Feedback (AI Generated)</h2>
-        <div class="llm-feedback">{llm_feedback_html}</div>
     </body>
     </html>
     """
     
-    # 5. Convert HTML to PDF
+    # 4. Convert HTML to PDF
     pdf_buffer = io.BytesIO()
     pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
     
@@ -194,13 +149,6 @@ except Exception as e:
     st.error(f"Error loading models/data: {e}")
     st.stop()
 
-# ------------------ OPENAI CLIENT ------------------ #
-load_dotenv()
-OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-if not client:
-    st.warning("⚠️ OpenAI API key not configured. LLM feedback will be unavailable.")
-
 # ------------------ USER INTERFACE INPUTS ------------------ #
 with st.expander("Enter Applicant's Profile Information", expanded=True):
     col1, col2 = st.columns(2)
@@ -212,23 +160,23 @@ with st.expander("Enter Applicant's Profile Information", expanded=True):
         QT_FILHOS = st.number_input('Number of Children', min_value=0, value=1)
         FAIXA_ETARIA = st.radio('Age Group', faixas_etarias, index=2, horizontal=True)
         TRABALHANDO_ATUALMENTE = st.radio('Currently Employed?', ['Yes', 'No'], index=0, horizontal=True)
-        ULTIMO_SALARIO = st.number_input('Last Monthly Salary (R$-Brazil Currency)', min_value=0.0, value=5400.0, step=100.0, disabled=(TRABALHANDO_ATUALMENTE == 'No'))
+        ULTIMO_SALARIO = st.number_input('Last Monthly Salary (R$ Brazil Currency)', min_value=0.0, value=5400.0, step=100.0, disabled=(TRABALHANDO_ATUALMENTE == 'No'))
         TEMPO_ULTIMO_EMPREGO_MESES = st.slider('Months at Last Job', 0, 240, 5)
 
     with col2:
         st.subheader("Assets")
         CASA_PROPRIA = st.radio('Owns a Home?', ['Yes', 'No'], index=0, horizontal=True)
         QT_IMOVEIS = st.number_input('Number of Properties', min_value=0, value=1, disabled=(CASA_PROPRIA == 'No'))
-        VL_IMOVEIS = st.number_input('Total Value of Properties (R$-Brazil Currency)', min_value=0.0, value=100000.0, step=10000.0, disabled=(CASA_PROPRIA == 'No'))
+        VL_IMOVEIS = st.number_input('Total Value of Properties (R$ Brazil Currency)', min_value=0.0, value=100000.0, step=10000.0, disabled=(CASA_PROPRIA == 'No'))
         
         QT_CARROS_input = st.number_input('Number of Cars', min_value=0, value=1)
         VALOR_TABELA_CARROS = st.slider(
-            'Total Value of Cars (R$-Brazil Currency)', 0, 200000, 45000, step=5000,
+            'Total Value of Cars (R$ Brazil Currency)', 0, 200000, 45000, step=5000,
             disabled=(QT_CARROS_input == 0)
         )
 
         OUTRA_RENDA = st.radio('Has Other Income?', ['Yes', 'No'], index=1, horizontal=True)
-        OUTRA_RENDA_VALOR = st.number_input('Other Income Amount (R$-Brazil Currency)', min_value=0.0, value=2000.0, step=100.0, disabled=(OUTRA_RENDA == 'No'))
+        OUTRA_RENDA_VALOR = st.number_input('Other Income Amount (R$ Brazil Currency)', min_value=0.0, value=2000.0, step=100.0, disabled=(OUTRA_RENDA == 'No'))
 
 # ------------------ MAIN LOGIC & ANALYSIS ------------------ #
 if st.button("Analyze Creditworthiness", type="primary"):
@@ -273,11 +221,11 @@ if st.button("Analyze Creditworthiness", type="primary"):
             "Other Income Amount (R$)": format_currency(OUTRA_RENDA_VALOR)
         }
     }
-    if CASA_PROPRIA == 'Não':
+    if CASA_PROPRIA == 'No':
         del input_summary_for_pdf["Assets"]["Number of Properties"], input_summary_for_pdf["Assets"]["Total Value of Properties (R$)"]
-    if TRABALHANDO_ATUALMENTE == 'Não':
+    if TRABALHANDO_ATUALMENTE == 'No':
         del input_summary_for_pdf["Personal & Employment Info"]["Last Monthly Salary (R$)"]
-    if OUTRA_RENDA == 'Não':
+    if OUTRA_RENDA == 'No':
         del input_summary_for_pdf["Assets"]["Other Income Amount (R$)"]
     if QT_CARROS_input == 0:
         del input_summary_for_pdf["Assets"]["Total Value of Cars (R$)"]
@@ -290,79 +238,62 @@ if st.button("Analyze Creditworthiness", type="primary"):
         st.subheader("Prediction Result")
         st.markdown(f"### Result: <span style='color:{cor};'>{resultado_texto_en}</span>", unsafe_allow_html=True)
         st.write(f"Probability of Approval: **{proba*100:.2f}%**")
-        st.divider()
-
-        shap_reasons_for_pdf, lime_reasons_for_pdf, llm_feedback_for_pdf = [], [], ""
+        
+        # --- Initialize variables for report generation ---
+        shap_reasons_for_pdf, lime_reasons_for_pdf = [], []
         fig_waterfall = None 
         
         # --- SHAP Explanation ---
-        st.subheader("SHAP Explanation (Feature Impact)")
+        st.header("SHAP Explanation (Feature Impact)")
         try:
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
             
-            # --- DEFINITIVE CORRECTION: Universal plotting method ---
-            # 1. Generate the plot in matplotlib's global state
+            # Universal plotting method
             shap.plots.waterfall(sv_plot, show=False, max_display=10)
-            
-            # 2. Capture the current figure (gcf) from MATPLOTLIB that SHAP just used
             fig_waterfall = plt.gcf()
-            
-            # 3. Display the captured figure in Streamlit
             st.pyplot(fig_waterfall)
             
+            # Display SHAP text explanation
             contribs = sv_scaled.values[0]
-            idx = np.argsort(contribs)[-3:][::-1] if y_pred == 1 else np.argsort(contribs)[:3]
-            st.write(f"**Top 3 factors contributing to the {'approval' if y_pred == 1 else 'decline'}:**")
+            # Use a higher number to ensure we get the top contributors as seen in the plot
+            num_features_to_show = 5 
+            idx = np.argsort(np.abs(contribs))[-num_features_to_show:][::-1]
+
+            st.write(f"**SHAP - Principais fatores que influenciaram a decisão:**")
             for j in idx:
                 feature, val, contrib = feature_names[j], X_input_df.iloc[0, j], contribs[j]
                 val_str = format_currency(val) if 'VL_' in feature or 'SALARIO' in feature or 'VALOR' in feature else str(val)
-                reason = f"**{feature}**: A value of **{val_str}** had a SHAP contribution of **{contrib:.2f}**."
+                reason = f"**{feature}**: contribuição de **{contrib:.2f}**, com um valor de **{val_str}**."
                 st.markdown(f"- {reason}")
                 shap_reasons_for_pdf.append(reason.replace("**", ""))
         except Exception as e:
             st.warning(f"Could not generate SHAP explanation: {e}")
             if fig_waterfall is None:
-                fig_waterfall = plt.figure()
-        st.divider()
-
+                fig_waterfall = plt.figure() # Create a blank figure to avoid errors in the PDF
+        
         # --- LIME Explanation ---
-        st.subheader("LIME Explanation (Local Rules)")
+        st.header("LIME Explanation (Local Rules)")
         try:
             lime_explainer = lime.lime_tabular.LimeTabularExplainer(X_train_df.values, feature_names=feature_names, class_names=['Declined', 'Approved'], mode='classification')
             lime_exp = lime_explainer.explain_instance(X_input_df.values[0], lambda x: model.predict_proba(scaler.transform(pd.DataFrame(x, columns=feature_names))), num_features=5)
-            st.write("**Top rules influencing the decision:**")
-            for rule, _ in lime_exp.as_list():
-                human_rule, input_val_str = humanize_lime_rule(rule, {name: name.replace('_', ' ').title() for name in feature_names}, novos_dados_dict)
-                reason = f"The rule '{human_rule}' was relevant." + (f" Your value is **{input_val_str}**." if input_val_str else "")
+            
+            st.write("**LIME – Principais fatores (regras brutas):**")
+            for rule, contrib in lime_exp.as_list():
+                reason = f"Regra LIME: `{rule}`, contribuição: **{contrib:.4f}**"
                 st.markdown(f"- {reason}")
-                lime_reasons_for_pdf.append(reason.replace("**", ""))
+                lime_reasons_for_pdf.append(f"Regra LIME: {rule}, contribuição: {contrib:.4f}")
         except Exception as e:
             st.warning(f"Could not generate LIME explanation: {e}")
-        st.divider()
-
-        # --- LLM Feedback ---
-        if client:
-            st.subheader("Expert Feedback (Generated by AI)")
-            prompt = f"""You are an expert credit analyst. The model predicted '{resultado_texto_en}'. Based on these SHAP and LIME reasons, provide a clear, empathetic summary for the client.
-            SHAP: {shap_reasons_for_pdf}
-            LIME: {lime_reasons_for_pdf}
-            Structure your response with a 'Result Analysis' and 'Recommendations' section. If declined, offer 2-3 actionable tips. If approved, congratulate them. Use bullet points. Be concise. Format currency as R$ 1.234,56."""
-            try:
-                with st.spinner("Generating personalized feedback with AI..."):
-                    resp = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
-                    feedback_content = resp.choices[0].message.content
-                    st.markdown(feedback_content)
-                    llm_feedback_for_pdf = feedback_content
-            except Exception as e:
-                st.error(f"Error generating feedback from OpenAI: {e}")
         
         # --- PDF Download Button ---
+        st.divider()
         pdf_bytes = create_pdf_report(
             result_text=resultado_texto_en, proba=proba, shap_fig=fig_waterfall,
             shap_reasons=shap_reasons_for_pdf, lime_reasons=lime_reasons_for_pdf,
-            llm_feedback=llm_feedback_for_pdf, input_data_dict=input_summary_for_pdf
+            input_data_dict=input_summary_for_pdf,
+            llm_feedback="" # We removed the LLM feedback for this version
         )
         if pdf_bytes:
             st.download_button(
@@ -370,5 +301,4 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 file_name="credit_analysis_report.pdf", mime="application/pdf"
             )
         
-        # Clear the current matplotlib figure to free memory for the next run
         plt.clf()
