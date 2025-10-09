@@ -293,18 +293,23 @@ if st.button("Analyze Creditworthiness", type="primary"):
         st.divider()
 
         shap_reasons_for_pdf, lime_reasons_for_pdf, llm_feedback_for_pdf = [], [], ""
+        fig_waterfall = None # Initialize fig_waterfall to None
         
         # --- SHAP Explanation ---
         st.subheader("SHAP Explanation (Feature Impact)")
-        fig_waterfall, ax = plt.subplots()
         try:
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
             
-            # This is the robust way to plot, ensuring it targets the correct axes
-            shap.plots.waterfall(sv_plot, show=False, max_display=10, ax=ax)
+            # --- DEFINITIVE CORRECTION: Universal plotting method ---
+            # 1. Generate the plot in matplotlib's global state
+            shap.plots.waterfall(sv_plot, show=False, max_display=10)
             
+            # 2. Capture the current figure (gcf) that SHAP just created
+            fig_waterfall = shap.gcf()
+            
+            # 3. Display the captured figure in Streamlit
             st.pyplot(fig_waterfall)
             
             contribs = sv_scaled.values[0]
@@ -318,6 +323,8 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 shap_reasons_for_pdf.append(reason.replace("**", ""))
         except Exception as e:
             st.warning(f"Could not generate SHAP explanation: {e}")
+            if fig_waterfall is None:
+                fig_waterfall = plt.figure() # Create a blank figure to avoid errors in the PDF
         st.divider()
 
         # --- LIME Explanation ---
@@ -363,4 +370,5 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 file_name="credit_analysis_report.pdf", mime="application/pdf"
             )
         
-        plt.close(fig_waterfall)
+        # Clear the current figure to free memory for the next run
+        plt.clf()
