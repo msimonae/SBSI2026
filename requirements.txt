@@ -4,11 +4,9 @@ pandas
 numpy
 scikit-learn
 joblib
-shap
+shap==0.45.0
 matplotlib
-anchor-exp
 lime
-eli5
 openai
 python-dotenv
 xhtml2pdf
