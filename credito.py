@@ -232,7 +232,7 @@ with st.expander("Enter Applicant's Profile Information", expanded=True):
 
 # ------------------ MAIN LOGIC & ANALYSIS ------------------ #
 if st.button("Analyze Creditworthiness", type="primary"):
-    # --- Prepare input data for the model ---
+    # --- Preparação de dados (sem alterações) ---
     novos_dados_dict = {
         'UF': uf_map[UF], 'ESCOLARIDADE': escolaridade_map[ESCOLARIDADE], 'ESTADO_CIVIL': estado_civil_map[ESTADO_CIVIL], 
         'QT_FILHOS': int(QT_FILHOS), 'CASA_PROPRIA': 1 if CASA_PROPRIA == 'Yes' else 0, 
@@ -249,7 +249,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
     }
     X_input_df = pd.DataFrame([novos_dados_dict.values()], columns=feature_names)
     
-    # --- Make prediction ---
+    # --- Predição (sem alterações) ---
     try:
         X_input_scaled = scaler.transform(X_input_df)
         X_input_scaled_df = pd.DataFrame(X_input_scaled, columns=feature_names)
@@ -259,7 +259,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
         st.error(f"An error occurred during prediction: {e}")
         st.stop()
 
-    # --- Prepare input summary for the PDF report ---
+    # --- Preparação do sumário para PDF (sem alterações) ---
     input_summary_for_pdf = {
         "Personal & Employment Info": {
             "State (UF)": UF, "Education Level": ESCOLARIDADE, "Marital Status": ESTADO_CIVIL,
@@ -282,7 +282,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
     if QT_CARROS_input == 0:
         del input_summary_for_pdf["Assets"]["Total Value of Cars (R$)"]
 
-    # --- Display results in a container ---
+    # --- Exibição dos resultados ---
     with st.container(border=True):
         resultado_texto_en = 'Approved' if int(y_pred) == 1 else 'Declined'
         cor = 'green' if int(y_pred) == 1 else 'red'
@@ -291,31 +291,31 @@ if st.button("Analyze Creditworthiness", type="primary"):
         st.markdown(f"### Result: <span style='color:{cor};'>{resultado_texto_en}</span>", unsafe_allow_html=True)
         st.write(f"Probability of Approval: **{proba*100:.2f}%**")
         
-        # --- Initialize variables for report generation ---
         shap_reasons_for_pdf, lime_reasons_for_pdf, llm_feedback_for_pdf = [], [], ""
         fig_waterfall = None 
         
         # --- SHAP Explanation ---
         st.header("SHAP Explanation (Feature Impact)")
         try:
-            # CORREÇÃO: Criar a figura antes de usá-la
-            fig_waterfall, ax = plt.subplots()
-            
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
             
-            # Gerar o gráfico na figura que acabamos de criar
+            # --- CORREÇÃO DEFINITIVA (Baseado no seu código funcional) ---
+            # 1. Cria uma figura limpa do Matplotlib
+            fig_waterfall = plt.figure()
+            
+            # 2. SHAP desenha na figura que acabamos de criar
             shap.plots.waterfall(sv_plot, show=False, max_display=10)
             
-            # Exibir a figura no Streamlit
+            # 3. Streamlit exibe a figura
             st.pyplot(fig_waterfall)
+            # --- FIM DA CORREÇÃO ---
             
-            # Extrair e exibir as razões em texto
+            # Lógica para texto do SHAP (sem alterações)
             contribs = sv_scaled.values[0]
             num_features_to_show = 5 
             idx = np.argsort(np.abs(contribs))[-num_features_to_show:][::-1]
-
             st.write(f"**SHAP - Principais fatores que influenciaram a decisão:**")
             for j in idx:
                 feature, val, contrib = feature_names[j], X_input_df.iloc[0, j], contribs[j]
@@ -326,14 +326,13 @@ if st.button("Analyze Creditworthiness", type="primary"):
         except Exception as e:
             st.warning(f"Could not generate SHAP explanation: {e}")
             if fig_waterfall is None:
-                fig_waterfall = plt.figure() # Cria uma figura vazia para evitar erros no PDF
+                fig_waterfall = plt.figure()
         
-        # --- LIME Explanation ---
+        # --- LIME Explanation (sem alterações) ---
         st.header("LIME Explanation (Local Rules)")
         try:
             lime_explainer = lime.lime_tabular.LimeTabularExplainer(X_train_df.values, feature_names=feature_names, class_names=['Declined', 'Approved'], mode='classification')
             lime_exp = lime_explainer.explain_instance(X_input_df.values[0], lambda x: model.predict_proba(scaler.transform(pd.DataFrame(x, columns=feature_names))), num_features=5)
-            
             st.write("**LIME – Principais fatores (regras brutas):**")
             for rule, contrib in lime_exp.as_list():
                 reason = f"Regra LIME: `{rule}`, contribuição: **{contrib:.4f}**"
@@ -342,9 +341,10 @@ if st.button("Analyze Creditworthiness", type="primary"):
         except Exception as e:
             st.warning(f"Could not generate LIME explanation: {e}")
         
-        # --- LLM Feedback ---
+        # --- LLM Feedback (sem alterações) ---
         if client:
             st.header("Expert Feedback (AI Generated)")
+            # ... (código do LLM permanece o mesmo)
             prompt = f"""You are an expert credit analyst. The model predicted '{resultado_texto_en}'. Based on these SHAP and LIME reasons, provide a clear, empathetic summary for the client.
             SHAP: {shap_reasons_for_pdf}
             LIME: {lime_reasons_for_pdf}
@@ -358,7 +358,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
             except Exception as e:
                 st.error(f"Error generating feedback from OpenAI: {e}")
 
-        # --- PDF Download Button ---
+        # --- PDF Download Button (sem alterações) ---
         st.divider()
         pdf_bytes = create_pdf_report(
             result_text=resultado_texto_en, proba=proba, shap_fig=fig_waterfall,
@@ -372,5 +372,8 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 file_name="credit_analysis_report.pdf", mime="application/pdf"
             )
         
-        # Limpar a figura no final para liberar memória
-        plt.close(fig_waterfall)
+        # --- Fechamento da figura ---
+        # A figura só é fechada aqui, no final de tudo, para garantir que ela
+        # esteja disponível para o st.pyplot() e para a função do PDF.
+        if fig_waterfall:
+            plt.close(fig_waterfall)
