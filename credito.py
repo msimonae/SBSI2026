@@ -341,33 +341,28 @@ if st.button("Analyze Creditworthiness", type="primary"):
         
         # --- LLM Feedback (sem alterações) ---
 
-        # --- LLM Feedback (CORRIGIDO COM NOVO PROMPT) ---
         if client:
             st.header("Expert Feedback (AI Generated)")
-            
-            # Novo prompt com instruções de formatação explícitas
-            prompt = f"""
-            You are an expert credit analyst. The model predicted '{resultado_texto_en}'. 
-            Based on the SHAP and LIME reasons below, provide a clear, empathetic summary for the client.
-
-            SHAP Reasons: {shap_reasons_for_pdf}
-            LIME Reasons: {lime_reasons_for_pdf}
-
-            **Instructions:**
-            1.  **Structure:** Create a response with four distinct sections: "Result Analysis", "SHAP Analysis", "LIME Analysis", and "Recommendations".
-            2.  **Formatting:** Use Markdown H3 headings for each section title (e.g., `### Result Analysis`). Use bullet points for all lists under the headings.
-            3.  **Content:** - In "SHAP Analysis", briefly explain the impact of the top features.
-                - In "LIME Analysis", briefly explain the most relevant rules.
-                - If the result is 'Declined', provide 2-3 actionable tips in the "Recommendations" section.
-                - If 'Approved', congratulate the client.
-            4.  **Style:** Be concise, empathetic, and avoid technical jargon. Format currency as R$ 1.234,56.
-            """
+            prompt = f"""You are an expert credit analyst. The model predicted '{resultado_texto_en}'. Based on these SHAP and LIME reasons, provide a clear, empathetic summary for the client.
+            SHAP: {shap_reasons_for_pdf}
+            LIME: {lime_reasons_for_pdf}
+            Structure your response with a 'Result Analysis', 'SHAP Analysis', 'LIME Analysis', and 'Recommendations' section. 
+            Formatting Instructions: Use Markdown H3 headings for each section title (e.g., ### Result Analysis). Use bullet points for all lists.
+            Be concise, empathetic, and format currency as R$ 1.234,56."""
             try:
                 with st.spinner("Generating personalized feedback with AI..."):
                     resp = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
                     feedback_content = resp.choices[0].message.content
-                    st.markdown(feedback_content)
+                    
+                    # --- INÍCIO DA CORREÇÃO ---
+                    # Cria uma versão para o Streamlit com o '$' escapado para evitar a renderização LaTeX
+                    feedback_for_streamlit = feedback_content.replace('$', r'\$')
+                    st.markdown(feedback_for_streamlit)
+                    
+                    # A versão original (sem escape) é mantida para o PDF, que renderiza '$' corretamente
                     llm_feedback_for_pdf = feedback_content
+                    # --- FIM DA CORREÇÃO ---
+
             except Exception as e:
                 st.error(f"Error generating feedback from OpenAI: {e}")
         
