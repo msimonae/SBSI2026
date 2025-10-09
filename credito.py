@@ -290,23 +290,28 @@ if st.button("Analyze Creditworthiness", type="primary"):
         st.subheader("Prediction Result")
         st.markdown(f"### Result: <span style='color:{cor};'>{resultado_texto_en}</span>", unsafe_allow_html=True)
         st.write(f"Probability of Approval: **{proba*100:.2f}%**")
-        st.divider()
-
+        
+        # --- Initialize variables for report generation ---
         shap_reasons_for_pdf, lime_reasons_for_pdf, llm_feedback_for_pdf = [], [], ""
         fig_waterfall = None 
         
         # --- SHAP Explanation ---
         st.header("SHAP Explanation (Feature Impact)")
         try:
-            plt.figure()
+            # CORREÇÃO: Criar a figura antes de usá-la
+            fig_waterfall, ax = plt.subplots()
+            
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
             sv_plot = shap.Explanation(values=sv_scaled.values[0], base_values=sv_scaled.base_values[0], data=X_input_df.iloc[0].values, feature_names=feature_names)
             
+            # Gerar o gráfico na figura que acabamos de criar
             shap.plots.waterfall(sv_plot, show=False, max_display=10)
-            fig_waterfall = plt.gcf()
+            
+            # Exibir a figura no Streamlit
             st.pyplot(fig_waterfall)
             
+            # Extrair e exibir as razões em texto
             contribs = sv_scaled.values[0]
             num_features_to_show = 5 
             idx = np.argsort(np.abs(contribs))[-num_features_to_show:][::-1]
@@ -321,8 +326,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
         except Exception as e:
             st.warning(f"Could not generate SHAP explanation: {e}")
             if fig_waterfall is None:
-                fig_waterfall = plt.figure()
-        st.divider()
+                fig_waterfall = plt.figure() # Cria uma figura vazia para evitar erros no PDF
         
         # --- LIME Explanation ---
         st.header("LIME Explanation (Local Rules)")
@@ -337,8 +341,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 lime_reasons_for_pdf.append(f"Regra LIME: {rule}, contribuição: {contrib:.4f}")
         except Exception as e:
             st.warning(f"Could not generate LIME explanation: {e}")
-        st.divider()
-
+        
         # --- LLM Feedback ---
         if client:
             st.header("Expert Feedback (AI Generated)")
@@ -354,7 +357,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
                     llm_feedback_for_pdf = feedback_content
             except Exception as e:
                 st.error(f"Error generating feedback from OpenAI: {e}")
-        
+
         # --- PDF Download Button ---
         st.divider()
         pdf_bytes = create_pdf_report(
@@ -369,4 +372,5 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 file_name="credit_analysis_report.pdf", mime="application/pdf"
             )
         
-        plt.clf()
+        # Limpar a figura no final para liberar memória
+        plt.close(fig_waterfall)
