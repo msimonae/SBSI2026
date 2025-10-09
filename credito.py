@@ -27,11 +27,49 @@ def format_currency(value):
     s = f"R$ {v:,.2f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
-# --- PDF REPORT GENERATION FUNCTION (Corrected) ---
-def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, input_data_dict):
+def humanize_lime_rule(rule, feature_translations, input_values):
+    """Receives a LIME rule string and returns a more human-readable version."""
+    clauses = re.split(r'\s+and\s+|\s*&\s*', rule, flags=re.IGNORECASE)
+    human_clauses = []
+    feature_name = None
+
+    for c in clauses:
+        c = c.strip().strip('()')
+        match = re.search(r'([A-Za-z_][A-Za-z0-9_]*)', c)
+        if match:
+            feature_name = match.group(1)
+            translated_feature = feature_translations.get(feature_name, feature_name)
+            
+            nums = re.findall(r'([-+]?\d*\.?\d+)', c)
+            formatted_c = c
+            for num in nums:
+                try:
+                    v = float(num)
+                    formatted_num = f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    formatted_c = formatted_c.replace(num, formatted_num, 1)
+                except ValueError:
+                    pass
+            
+            formatted_c = formatted_c.replace(feature_name, translated_feature)
+            human_clauses.append(formatted_c)
+        else:
+            human_clauses.append(c)
+    
+    humanized = " and ".join(human_clauses)
+    input_value_str = None
+    if feature_name and feature_name in input_values:
+        val = input_values[feature_name]
+        is_money_input = feature_name in ['VL_IMOVEIS', 'VALOR_TABELA_CARROS', 'ULTIMO_SALARIO', 'OUTRA_RENDA_VALOR']
+        input_value_str = format_currency(val) if is_money_input else str(val)
+
+    return humanized, input_value_str
+
+
+# --- PDF REPORT GENERATION FUNCTION (FINAL VERSION) ---
+def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, llm_feedback, input_data_dict):
     """
-    Generates a complete PDF report from the analysis results.
-    Note: This version does not include LLM feedback.
+    Generates a complete PDF report from the analysis results,
+    including the applicant's input profile and LLM feedback.
     """
     # 1. Convert SHAP figure to a base64 image
     buf = io.BytesIO()
@@ -39,7 +77,10 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     shap_img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
     buf.close()
 
-    # 2. Build HTML tables for the input data
+    # 2. Convert LLM feedback from Markdown to HTML
+    llm_feedback_html = markdown.markdown(llm_feedback)
+
+    # 3. Build HTML tables for the input data
     personal_info_html = ""
     for label, value in input_data_dict["Personal & Employment Info"].items():
         personal_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
@@ -48,7 +89,7 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
     for label, value in input_data_dict["Assets"].items():
         assets_info_html += f"<tr><td class='label'>{label}</td><td class='value'>{value}</td></tr>"
 
-    # 3. Assemble the complete HTML content for the report
+    # 4. Assemble the complete HTML content for the report
     html = f"""
     <html>
     <head>
@@ -70,6 +111,8 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
             .explanation-section ul {{ list-style-type: none; padding-left: 0; }}
             .explanation-section li {{ background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; margin-bottom: 8px; }}
             .shap-image {{ text-align: center; margin-top: 20px; }}
+            .llm-feedback p, .llm-feedback li {{ margin-bottom: 10px; }}
+            .llm-feedback ul {{ padding-left: 20px; }}
             img {{ max-width: 100%; height: auto; }}
         </style>
     </head>
@@ -100,11 +143,13 @@ def create_pdf_report(result_text, proba, shap_fig, shap_reasons, lime_reasons, 
         <div class="explanation-section"><ul>{''.join([f'<li>{reason}</li>' for reason in shap_reasons])}</ul></div>
         <h2>LIME Explanation (Local Rules)</h2>
         <div class="explanation-section"><ul>{''.join([f'<li>{reason}</li>' for reason in lime_reasons])}</ul></div>
+        <h2>Expert Feedback (AI Generated)</h2>
+        <div class="llm-feedback">{llm_feedback_html}</div>
     </body>
     </html>
     """
     
-    # 4. Convert HTML to PDF
+    # 5. Convert HTML to PDF
     pdf_buffer = io.BytesIO()
     pisa_status = pisa.CreatePDF(io.StringIO(html), dest=pdf_buffer)
     
@@ -148,6 +193,13 @@ try:
 except Exception as e:
     st.error(f"Error loading models/data: {e}")
     st.stop()
+
+# ------------------ OPENAI CLIENT ------------------ #
+load_dotenv()
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+if not client:
+    st.warning("⚠️ OpenAI API key not configured. LLM feedback will be unavailable.")
 
 # ------------------ USER INTERFACE INPUTS ------------------ #
 with st.expander("Enter Applicant's Profile Information", expanded=True):
@@ -238,15 +290,14 @@ if st.button("Analyze Creditworthiness", type="primary"):
         st.subheader("Prediction Result")
         st.markdown(f"### Result: <span style='color:{cor};'>{resultado_texto_en}</span>", unsafe_allow_html=True)
         st.write(f"Probability of Approval: **{proba*100:.2f}%**")
-        
-        # --- Initialize variables for report generation ---
-        shap_reasons_for_pdf, lime_reasons_for_pdf = [], []
+        st.divider()
+
+        shap_reasons_for_pdf, lime_reasons_for_pdf, llm_feedback_for_pdf = [], [], ""
         fig_waterfall = None 
         
         # --- SHAP Explanation ---
         st.header("SHAP Explanation (Feature Impact)")
         try:
-            # CORREÇÃO: Adicionado plt.figure() para criar uma tela de desenho limpa
             plt.figure()
             explainer = shap.TreeExplainer(model)
             sv_scaled = explainer(X_input_scaled_df)
@@ -256,7 +307,6 @@ if st.button("Analyze Creditworthiness", type="primary"):
             fig_waterfall = plt.gcf()
             st.pyplot(fig_waterfall)
             
-            # Display SHAP text explanation
             contribs = sv_scaled.values[0]
             num_features_to_show = 5 
             idx = np.argsort(np.abs(contribs))[-num_features_to_show:][::-1]
@@ -272,6 +322,7 @@ if st.button("Analyze Creditworthiness", type="primary"):
             st.warning(f"Could not generate SHAP explanation: {e}")
             if fig_waterfall is None:
                 fig_waterfall = plt.figure()
+        st.divider()
         
         # --- LIME Explanation ---
         st.header("LIME Explanation (Local Rules)")
@@ -286,13 +337,30 @@ if st.button("Analyze Creditworthiness", type="primary"):
                 lime_reasons_for_pdf.append(f"Regra LIME: {rule}, contribuição: {contrib:.4f}")
         except Exception as e:
             st.warning(f"Could not generate LIME explanation: {e}")
+        st.divider()
+
+        # --- LLM Feedback ---
+        if client:
+            st.header("Expert Feedback (AI Generated)")
+            prompt = f"""You are an expert credit analyst. The model predicted '{resultado_texto_en}'. Based on these SHAP and LIME reasons, provide a clear, empathetic summary for the client.
+            SHAP: {shap_reasons_for_pdf}
+            LIME: {lime_reasons_for_pdf}
+            Structure your response with a 'Result Analysis' and 'Recommendations' section. If declined, offer 2-3 actionable tips. If approved, congratulate them. Use bullet points. Be concise. Format currency as R$ 1.234,56."""
+            try:
+                with st.spinner("Generating personalized feedback with AI..."):
+                    resp = client.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}], temperature=0.1, max_tokens=500)
+                    feedback_content = resp.choices[0].message.content
+                    st.markdown(feedback_content)
+                    llm_feedback_for_pdf = feedback_content
+            except Exception as e:
+                st.error(f"Error generating feedback from OpenAI: {e}")
         
         # --- PDF Download Button ---
         st.divider()
-        # CORREÇÃO: Removido o argumento 'llm_feedback' da chamada
         pdf_bytes = create_pdf_report(
             result_text=resultado_texto_en, proba=proba, shap_fig=fig_waterfall,
             shap_reasons=shap_reasons_for_pdf, lime_reasons=lime_reasons_for_pdf,
+            llm_feedback=llm_feedback_for_pdf,
             input_data_dict=input_summary_for_pdf
         )
         if pdf_bytes:
