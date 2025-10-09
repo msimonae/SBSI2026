@@ -220,8 +220,15 @@ with st.expander("Enter Applicant's Profile Information", expanded=True):
         CASA_PROPRIA = st.radio('Owns a Home?', ['Sim', 'Não'], index=0, horizontal=True)
         QT_IMOVEIS = st.number_input('Number of Properties', min_value=0, value=1, disabled=(CASA_PROPRIA == 'Não'))
         VL_IMOVEIS = st.number_input('Total Value of Properties (R$)', min_value=0.0, value=100000.0, step=10000.0, disabled=(CASA_PROPRIA == 'Não'))
+        
+        # --- Alteração para desabilitar o campo de valor ---
         QT_CARROS_input = st.number_input('Number of Cars', min_value=0, value=1)
-        VALOR_TABELA_CARROS = st.slider('Total Value of Cars (R$)', 0, 200000, 45000, step=5000)
+        VALOR_TABELA_CARROS = st.slider(
+            'Total Value of Cars (R$)', 0, 200000, 45000, step=5000,
+            disabled=(QT_CARROS_input == 0)
+        )
+        # --- Fim da alteração ---
+
         OUTRA_RENDA = st.radio('Has Other Income?', ['Sim', 'Não'], index=1, horizontal=True)
         OUTRA_RENDA_VALOR = st.number_input('Other Income Amount (R$)', min_value=0.0, value=2000.0, step=100.0, disabled=(OUTRA_RENDA == 'Não'))
 
@@ -230,15 +237,17 @@ if st.button("Analyze Creditworthiness", type="primary"):
     # --- Prepare input data for the model ---
     novos_dados_dict = {
         'UF': uf_map[UF], 'ESCOLARIDADE': escolaridade_map[ESCOLARIDADE], 'ESTADO_CIVIL': estado_civil_map[ESTADO_CIVIL], 
-        'QT_FILHOS': int(QT_FILHOS), 'CASA_PROPRIA': 1 if CASA_PROPRIA == 'Sim' else 0, 'QT_IMOVEIS': int(QT_IMOVEIS), 
+        'QT_FILHOS': int(QT_FILHOS), 'CASA_PROPRIA': 1 if CASA_PROPRIA == 'Sim' else 0, 
+        'QT_IMOVEIS': int(QT_IMOVEIS) if CASA_PROPRIA == 'Sim' else 0, 
         'VL_IMOVEIS': float(VL_IMOVEIS) if CASA_PROPRIA == 'Sim' else 0.0,
         'OUTRA_RENDA': 1 if OUTRA_RENDA == 'Sim' else 0, 
         'OUTRA_RENDA_VALOR': float(OUTRA_RENDA_VALOR) if OUTRA_RENDA == 'Sim' else 0.0,
         'TEMPO_ULTIMO_EMPREGO_MESES': int(TEMPO_ULTIMO_EMPREGO_MESES),
         'TRABALHANDO_ATUALMENTE': 1 if TRABALHANDO_ATUALMENTE == 'Sim' else 0, 
         'ULTIMO_SALARIO': float(ULTIMO_SALARIO) if TRABALHANDO_ATUALMENTE == 'Sim' else 0.0,
-        'QT_CARROS': int(QT_CARROS_input), 'VALOR_TABELA_CARROS': float(VALOR_TABELA_CARROS), 
-        'FAIXA_ETARIA': faixa_etaria_map[FAIXA_ETARIA] # <-- CORREÇÃO AQUI
+        'QT_CARROS': int(QT_CARROS_input), 
+        'VALOR_TABELA_CARROS': float(VALOR_TABELA_CARROS) if QT_CARROS_input > 0 else 0.0,
+        'FAIXA_ETARIA': faixa_etaria_map[FAIXA_ETARIA]
     }
     X_input_df = pd.DataFrame([novos_dados_dict.values()], columns=feature_names)
     
@@ -272,6 +281,9 @@ if st.button("Analyze Creditworthiness", type="primary"):
         del input_summary_for_pdf["Personal & Employment Info"]["Last Monthly Salary (R$)"]
     if OUTRA_RENDA == 'Não':
         del input_summary_for_pdf["Assets"]["Other Income Amount (R$)"]
+    if QT_CARROS_input == 0:
+        del input_summary_for_pdf["Assets"]["Total Value of Cars (R$)"]
+
 
     # --- Display results in a container ---
     with st.container(border=True):
