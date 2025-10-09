@@ -373,12 +373,12 @@ with st.expander("Enter Applicant's Profile Information", expanded=True):
         QT_FILHOS = st.number_input('Number of Children', min_value=0, value=1)
         FAIXA_ETARIA = st.radio('Age Group', faixas_etarias, index=2, horizontal=True)
         TRABALHANDO_ATUALMENTE = st.radio('Currently Employed?', ['Sim', 'Não'], index=0, horizontal=True)
-         if TRABALHANDO_ATUALMENTE == 'Sim':
-             ULTIMO_SALARIO = st.number_input('Last Monthly Salary (R$)', min_value=0.0, value=5400.0, step=100.0)
-         else:
-             ULTIMO_SALARIO = 0.0
+        if TRABALHANDO_ATUALMENTE == 'Sim':
+            ULTIMO_SALARIO = st.number_input('Last Monthly Salary (R$)', min_value=0.0, value=5400.0, step=100.0)
+        else:
+            ULTIMO_SALARIO = 0.0
 
-         TEMPO_ULTIMO_EMPREGO_MESES = st.slider('Months at Last Job', 0, 240, 5)
+        TEMPO_ULTIMO_EMPREGO_MESES = st.slider('Months at Last Job', 0, 240, 5)
 
     with col2:
         st.subheader("Assets ")
